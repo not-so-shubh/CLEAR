@@ -22,6 +22,8 @@ class AdmissionRejectionCode(StrEnum):
     SUBMITTED_AFTER_RECEIVED = "submitted_after_received"
     SUBMITTED_AFTER_DEADLINE = "submitted_after_deadline"
     RECEIVED_AFTER_DEADLINE = "received_after_deadline"
+    REPLAYED_BID_ID = "replayed_bid_id"
+    DUPLICATE_MERCHANT_BID = "duplicate_merchant_bid"
 
 
 def evaluate_stateless_admission(

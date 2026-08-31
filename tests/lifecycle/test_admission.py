@@ -133,7 +133,10 @@ def _with_invalid_signature(signed_bid: SignedMerchantBid) -> SignedMerchantBid:
 def test_lifecycle_public_api_is_exact() -> None:
     assert lifecycle.__all__ == (
         "AdmissionContext",
+        "AdmissionDecision",
         "AdmissionRejectionCode",
+        "AdmissionState",
+        "admit_signed_bid",
         "evaluate_stateless_admission",
     )
 
@@ -224,6 +227,8 @@ def test_admission_rejection_codes_are_exact() -> None:
         ("SUBMITTED_AFTER_RECEIVED", "submitted_after_received"),
         ("SUBMITTED_AFTER_DEADLINE", "submitted_after_deadline"),
         ("RECEIVED_AFTER_DEADLINE", "received_after_deadline"),
+        ("REPLAYED_BID_ID", "replayed_bid_id"),
+        ("DUPLICATE_MERCHANT_BID", "duplicate_merchant_bid"),
     )
 
 
