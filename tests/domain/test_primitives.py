@@ -49,6 +49,8 @@ def test_domain_public_api_is_exact() -> None:
     assert domain.__all__ == (
         "MAX_MONEY_PAISE",
         "MAX_QUANTITY",
+        "MIN_SELLERS",
+        "MAX_SELLERS",
         "CanonicalUUID4",
         "Currency",
         "InvalidQuantityError",
@@ -57,6 +59,9 @@ def test_domain_public_api_is_exact() -> None:
         "PositiveQuantity",
         "Quantity",
         "UTCDateTime",
+        "MarketSpec",
+        "MerchantIdentity",
+        "BuyerPolicy",
     )
     assert MAX_MONEY_PAISE == 1_000_000_000_000
     assert MAX_QUANTITY == 1_000_000

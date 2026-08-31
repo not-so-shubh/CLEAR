@@ -1,6 +1,12 @@
 """Public pure-domain primitives for CLEAR."""
 
-from clear_market.domain.constants import MAX_MONEY_PAISE, MAX_QUANTITY
+from clear_market.domain.constants import (
+    MAX_MONEY_PAISE,
+    MAX_QUANTITY,
+    MAX_SELLERS,
+    MIN_SELLERS,
+)
+from clear_market.domain.models import BuyerPolicy, MarketSpec, MerchantIdentity
 from clear_market.domain.money import (
     Currency,
     InvalidQuantityError,
@@ -14,9 +20,12 @@ from clear_market.domain.primitives import (
     UTCDateTime,
 )
 
-__all__ = (
+# This reviewed compatibility order intentionally differs from alphabetical presentation.
+__all__ = (  # noqa: RUF022
     "MAX_MONEY_PAISE",
     "MAX_QUANTITY",
+    "MIN_SELLERS",
+    "MAX_SELLERS",
     "CanonicalUUID4",
     "Currency",
     "InvalidQuantityError",
@@ -25,4 +34,7 @@ __all__ = (
     "PositiveQuantity",
     "Quantity",
     "UTCDateTime",
+    "MarketSpec",
+    "MerchantIdentity",
+    "BuyerPolicy",
 )
