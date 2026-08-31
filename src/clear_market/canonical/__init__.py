@@ -3,6 +3,7 @@ from clear_market.canonical.serialization import (
     CanonicalizationError,
     canonical_buyer_policy_bytes,
     canonical_json_bytes,
+    canonical_merchant_bid_bytes,
     canonical_utc_datetime,
 )
 
@@ -11,5 +12,6 @@ __all__ = (
     "CanonicalizationError",
     "canonical_buyer_policy_bytes",
     "canonical_json_bytes",
+    "canonical_merchant_bid_bytes",
     "canonical_utc_datetime",
 )

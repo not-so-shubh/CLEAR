@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Final, cast
 
-from clear_market.domain import BuyerPolicy
+from clear_market.domain import BuyerPolicy, MerchantBid
 
 CANONICALIZATION_VERSION: Final[str] = "clear-json-v1"
 
@@ -95,6 +95,28 @@ def canonical_buyer_policy_bytes(policy: BuyerPolicy) -> bytes:
     envelope = {
         "canonicalization_version": CANONICALIZATION_VERSION,
         "payload_type": "buyer_policy",
+        "payload": payload,
+    }
+    return canonical_json_bytes(envelope)
+
+
+def canonical_merchant_bid_bytes(bid: MerchantBid) -> bytes:
+    """Project every MerchantBid field into the exact raw message bytes."""
+    payload = {
+        "schema_version": bid.schema_version,
+        "bid_id": bid.bid_id,
+        "market_id": bid.market_id,
+        "merchant_id": bid.merchant_id,
+        "buyer_policy_commitment_version": bid.buyer_policy_commitment_version,
+        "buyer_policy_commitment": bid.buyer_policy_commitment,
+        "quantity_available": bid.quantity_available,
+        "unit_price_paise": bid.unit_price_paise,
+        "currency": bid.currency.value,
+        "submitted_at": canonical_utc_datetime(bid.submitted_at),
+    }
+    envelope = {
+        "canonicalization_version": CANONICALIZATION_VERSION,
+        "payload_type": "merchant_bid",
         "payload": payload,
     }
     return canonical_json_bytes(envelope)

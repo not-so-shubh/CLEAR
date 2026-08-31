@@ -62,6 +62,7 @@ def test_domain_public_api_is_exact() -> None:
         "MarketSpec",
         "MerchantIdentity",
         "BuyerPolicy",
+        "MerchantBid",
     )
     assert MAX_MONEY_PAISE == 1_000_000_000_000
     assert MAX_QUANTITY == 1_000_000

@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 from uuid import UUID
@@ -10,9 +12,17 @@ from clear_market.canonical import (
     CanonicalizationError,
     canonical_buyer_policy_bytes,
     canonical_json_bytes,
+    canonical_merchant_bid_bytes,
     canonical_utc_datetime,
 )
-from clear_market.domain import BuyerPolicy, Currency, MarketSpec, MerchantIdentity, Money
+from clear_market.domain import (
+    BuyerPolicy,
+    Currency,
+    MarketSpec,
+    MerchantBid,
+    MerchantIdentity,
+    Money,
+)
 
 _MARKET_ID = "10000000-0000-4000-8000-000000000001"
 _BUYER_ID = "20000000-0000-4000-8000-000000000001"
@@ -21,6 +31,9 @@ _MERCHANT_ID_2 = "30000000-0000-4000-8000-000000000002"
 _PUBLIC_KEY_1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 _PUBLIC_KEY_2 = "1111111111111111111111111111111111111111111111111111111111111111"
 _GOLDEN_DEADLINE = datetime(2026, 9, 1, 12, 0, 0, 123_456, tzinfo=UTC)
+_BID_ID = "40000000-0000-4000-8000-000000000001"
+_BUYER_POLICY_COMMITMENT = "2c11204c2b587606020b0d035719ec2b32f217e0b78ffdb22e038bd7ec1f4ca7"
+_BID_SUBMITTED_AT = datetime(2026, 9, 1, 11, 59, 59, 123_456, tzinfo=UTC)
 _GOLDEN_JSON = (
     '{"canonicalization_version":"clear-json-v1","payload":{"bid_deadline":'
     '"2026-09-01T12:00:00.123456Z","eligible_merchants":['
@@ -37,6 +50,18 @@ _GOLDEN_JSON = (
     '"merchant_id_lexicographic_ascending"},"payload_type":"buyer_policy"}'
 )
 _GOLDEN_BYTES = _GOLDEN_JSON.encode("utf-8")
+_GOLDEN_BID_JSON = (
+    '{"canonicalization_version":"clear-json-v1","payload":{"bid_id":'
+    '"40000000-0000-4000-8000-000000000001","buyer_policy_commitment":'
+    '"2c11204c2b587606020b0d035719ec2b32f217e0b78ffdb22e038bd7ec1f4ca7",'
+    '"buyer_policy_commitment_version":"sha256-clear-json-v1","currency":"INR",'
+    '"market_id":"10000000-0000-4000-8000-000000000001","merchant_id":'
+    '"30000000-0000-4000-8000-000000000001","quantity_available":4,'
+    '"schema_version":"1","submitted_at":"2026-09-01T11:59:59.123456Z",'
+    '"unit_price_paise":100},"payload_type":"merchant_bid"}'
+)
+_GOLDEN_BID_BYTES = _GOLDEN_BID_JSON.encode()
+_GOLDEN_BID_SHA256 = "8fb601e4203a2b2213637505c224652775b8a7baad928e9c2538002aa731f0dc"
 
 
 class _NoOffsetTimezone(tzinfo):
@@ -76,12 +101,34 @@ def _golden_policy(
     )
 
 
+def _golden_bid(
+    *,
+    bid_id: str = _BID_ID,
+    market_id: str = _MARKET_ID,
+    merchant_id: str = _MERCHANT_ID_1,
+    buyer_policy_commitment: str = _BUYER_POLICY_COMMITMENT,
+    quantity_available: int = 4,
+    unit_price_paise: int = 100,
+    submitted_at: datetime = _BID_SUBMITTED_AT,
+) -> MerchantBid:
+    return MerchantBid(
+        bid_id=bid_id,
+        market_id=market_id,
+        merchant_id=merchant_id,
+        buyer_policy_commitment=buyer_policy_commitment,
+        quantity_available=quantity_available,
+        unit_price_paise=unit_price_paise,
+        submitted_at=submitted_at,
+    )
+
+
 def test_canonical_public_api_is_exact() -> None:
     assert canonical.__all__ == (
         "CANONICALIZATION_VERSION",
         "CanonicalizationError",
         "canonical_buyer_policy_bytes",
         "canonical_json_bytes",
+        "canonical_merchant_bid_bytes",
         "canonical_utc_datetime",
     )
 
@@ -248,3 +295,72 @@ def test_buyer_policy_bytes_ignore_equivalent_deadline_timezone() -> None:
     assert canonical_buyer_policy_bytes(_golden_policy()) == canonical_buyer_policy_bytes(
         _golden_policy(deadline=offset_deadline)
     )
+
+
+def test_golden_merchant_bid_bytes_are_frozen() -> None:
+    encoded = canonical_merchant_bid_bytes(_golden_bid())
+
+    assert encoded == _GOLDEN_BID_BYTES
+    assert len(encoded) == 517
+
+
+def test_golden_merchant_bid_sha256_diagnostic_is_frozen() -> None:
+    encoded = canonical_merchant_bid_bytes(_golden_bid())
+
+    assert hashlib.sha256(encoded).hexdigest() == _GOLDEN_BID_SHA256
+
+
+def test_merchant_bid_bytes_ignore_equivalent_submitted_at_timezone() -> None:
+    offset_submitted_at = datetime(
+        2026,
+        9,
+        1,
+        17,
+        29,
+        59,
+        123_456,
+        tzinfo=timezone(timedelta(hours=5, minutes=30)),
+    )
+
+    assert canonical_merchant_bid_bytes(_golden_bid()) == canonical_merchant_bid_bytes(
+        _golden_bid(submitted_at=offset_submitted_at)
+    )
+
+
+def test_merchant_bid_bytes_bind_protocol_metadata_without_signature() -> None:
+    envelope = json.loads(canonical_merchant_bid_bytes(_golden_bid()))
+    payload = envelope["payload"]
+
+    assert payload["buyer_policy_commitment_version"] == "sha256-clear-json-v1"
+    assert payload["buyer_policy_commitment"] == _BUYER_POLICY_COMMITMENT
+    assert payload["currency"] == "INR"
+    assert "signature" not in envelope
+    assert "signature" not in payload
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"bid_id": "40000000-0000-4000-8000-000000000002"},
+        {"market_id": "10000000-0000-4000-8000-000000000002"},
+        {"merchant_id": "30000000-0000-4000-8000-000000000002"},
+        {"buyer_policy_commitment": "a" * 64},
+        {"quantity_available": 5},
+        {"unit_price_paise": 101},
+        {"submitted_at": datetime(2026, 9, 1, 12, 0, 0, 123_456, tzinfo=UTC)},
+    ],
+    ids=(
+        "bid-id",
+        "market-id",
+        "merchant-id",
+        "buyer-policy-commitment",
+        "quantity-available",
+        "unit-price-paise",
+        "submitted-at",
+    ),
+)
+def test_merchant_bid_bytes_change_with_bound_field(changes: dict[str, object]) -> None:
+    original = _golden_bid()
+    changed = _golden_bid(**changes)
+
+    assert canonical_merchant_bid_bytes(changed) != canonical_merchant_bid_bytes(original)

@@ -1,5 +1,6 @@
 """Public pure-domain primitives for CLEAR."""
 
+from clear_market.domain.bids import MerchantBid
 from clear_market.domain.constants import (
     MAX_MONEY_PAISE,
     MAX_QUANTITY,
@@ -37,4 +38,5 @@ __all__ = (  # noqa: RUF022
     "MarketSpec",
     "MerchantIdentity",
     "BuyerPolicy",
+    "MerchantBid",
 )
