@@ -11,6 +11,7 @@ from clear_market.domain import (
     MAX_QUANTITY,
     Currency,
     MerchantBid,
+    SignedMerchantBid,
 )
 
 _BID_ID = "40000000-0000-4000-8000-000000000001"
@@ -19,6 +20,7 @@ _MERCHANT_ID = "30000000-0000-4000-8000-000000000001"
 _UUID_WITH_LETTERS = "550e8400-e29b-41d4-a716-446655440000"
 _BUYER_POLICY_COMMITMENT = "2c11204c2b587606020b0d035719ec2b32f217e0b78ffdb22e038bd7ec1f4ca7"
 _SUBMITTED_AT = datetime(2026, 9, 1, 11, 59, 59, 123_456, tzinfo=UTC)
+_VALID_SIGNATURE_HEX = "ab" * 64
 
 
 def _bid(
@@ -253,3 +255,53 @@ def test_merchant_bid_preserves_submitted_at_microseconds() -> None:
 def test_merchant_bid_rejects_invalid_submitted_at(submitted_at: object) -> None:
     with pytest.raises(ValidationError):
         _bid(submitted_at=submitted_at)
+
+
+def test_signed_merchant_bid_accepts_valid_syntactic_evidence() -> None:
+    bid = _bid()
+    signed_bid = SignedMerchantBid(bid=bid, signature_hex=_VALID_SIGNATURE_HEX)
+
+    assert signed_bid.bid == bid
+    assert signed_bid.signature_hex == _VALID_SIGNATURE_HEX
+
+
+def test_signed_merchant_bid_accepts_cryptographically_false_but_valid_shape_signature() -> None:
+    signed_bid = SignedMerchantBid(bid=_bid(), signature_hex="0" * 128)
+
+    assert signed_bid.signature_hex == "0" * 128
+
+
+def test_signed_merchant_bid_is_frozen() -> None:
+    signed_bid = SignedMerchantBid(bid=_bid(), signature_hex=_VALID_SIGNATURE_HEX)
+
+    with pytest.raises(ValidationError):
+        signed_bid.signature_hex = "cd" * 64
+
+
+def test_signed_merchant_bid_rejects_extra_fields() -> None:
+    with pytest.raises(ValidationError):
+        SignedMerchantBid(
+            bid=_bid(),
+            signature_hex=_VALID_SIGNATURE_HEX,
+            unexpected=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "signature_hex",
+    [
+        _VALID_SIGNATURE_HEX[:-1],
+        f"{_VALID_SIGNATURE_HEX}0",
+        _VALID_SIGNATURE_HEX.upper(),
+        f" {_VALID_SIGNATURE_HEX}",
+        f"{_VALID_SIGNATURE_HEX} ",
+        f"0x{_VALID_SIGNATURE_HEX}",
+        f"g{_VALID_SIGNATURE_HEX[1:]}",
+        bytes.fromhex(_VALID_SIGNATURE_HEX),
+        1,
+        None,
+    ],
+)
+def test_signed_merchant_bid_rejects_invalid_signature_hex(signature_hex: object) -> None:
+    with pytest.raises(ValidationError):
+        SignedMerchantBid(bid=_bid(), signature_hex=signature_hex)

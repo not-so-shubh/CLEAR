@@ -66,7 +66,10 @@ def _policy(
 def test_crypto_public_api_is_exact() -> None:
     assert crypto.__all__ == (
         "BUYER_POLICY_COMMITMENT_VERSION",
+        "MERCHANT_BID_SIGNATURE_VERSION",
         "buyer_policy_commitment",
+        "sign_merchant_bid",
+        "verify_merchant_bid_signature",
     )
 
 

@@ -18,6 +18,15 @@ def _validate_buyer_policy_commitment(value: object) -> str:
     return value
 
 
+def _validate_signature_hex(value: object) -> str:
+    """Require the exact detached Ed25519 evidence representation without normalizing it."""
+    if type(value) is not str:
+        raise ValueError("signature must be a string")
+    if len(value) != 128 or any(character not in _LOWERCASE_HEX_DIGITS for character in value):
+        raise ValueError("signature must be 128 lowercase hexadecimal characters")
+    return value
+
+
 type _BuyerPolicyCommitment = Annotated[
     str,
     BeforeValidator(_validate_buyer_policy_commitment),
@@ -25,6 +34,10 @@ type _BuyerPolicyCommitment = Annotated[
 type _UnitPricePaise = Annotated[
     int,
     Field(strict=True, ge=0, le=MAX_MONEY_PAISE),
+]
+type _SignatureHex = Annotated[
+    str,
+    BeforeValidator(_validate_signature_hex),
 ]
 
 
@@ -43,3 +56,12 @@ class MerchantBid(BaseModel):
     unit_price_paise: _UnitPricePaise
     currency: Currency = Currency.INR
     submitted_at: UTCDateTime
+
+
+class SignedMerchantBid(BaseModel):
+    """Immutable MerchantBid paired only with its detached Ed25519 evidence."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    bid: MerchantBid
+    signature_hex: _SignatureHex
