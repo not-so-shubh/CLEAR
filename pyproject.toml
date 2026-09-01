@@ -11,6 +11,9 @@ dependencies = [
     "pydantic>=2,<3",
 ]
 
+[project.scripts]
+clear = "clear_market.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "hypothesis>=6,<7",
