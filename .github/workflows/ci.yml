@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Check lint
+        run: python -m ruff check .
+
+      - name: Check formatting
+        run: python -m ruff format --check .
+
+      - name: Check types
+        run: python -m mypy src
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+      - name: Run test suite with fixed hash seed
+        run: PYTHONHASHSEED=1 python -m pytest -q
+
+      - name: Verify frozen evaluation artifact
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          path = Path("benchmarks/frozen_evaluation_report_v1.json")
+          expected = "d63d4217486daf9ca1cc4840bbcd091b5589507cfa376a232eb61fc08ed7e2fe"
+          actual = hashlib.sha256(path.read_bytes()).hexdigest()
+          if actual != expected:
+              print(f"expected: {expected}")
+              print(f"actual:   {actual}")
+              raise SystemExit(1)
+          print(f"frozen evaluation artifact SHA-256 verified: {actual}")
+          PY
