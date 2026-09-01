@@ -9,13 +9,18 @@ from clear_market.benchmark import (
 
 def test_benchmark_public_api_is_exact() -> None:
     assert benchmark.__all__ == (
+        "BENCHMARK_FINGERPRINT_VERSION",
+        "BENCHMARK_RUNNER_VERSION",
         "DEVELOPMENT_SEEDS",
         "FROZEN_EVALUATION_SEEDS",
         "MARKET_GENERATOR_VERSION",
         "MAX_GENERATOR_SEED",
+        "BenchmarkHardFailureCode",
+        "BenchmarkReport",
         "GeneratedAdmissionAttempt",
         "GeneratedMarketCase",
         "generate_market_case",
+        "run_differential_benchmark",
     )
 
 
