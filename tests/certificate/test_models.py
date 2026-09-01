@@ -111,9 +111,12 @@ def _certificate(**overrides: object) -> AllocationCertificate:
 
 def test_certificate_public_api_is_exact() -> None:
     assert certificate.__all__ == (
+        "ALLOCATION_CERTIFICATE_DIGEST_VERSION",
         "ALLOCATION_CERTIFICATE_VERSION",
         "AllocationCertificate",
+        "allocation_certificate_digest",
         "build_allocation_certificate",
+        "canonical_allocation_certificate_bytes",
     )
 
 
