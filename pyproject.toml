@@ -20,6 +20,7 @@ dev = [
     "mypy>=1.13,<2",
     "pytest>=8,<10",
     "ruff>=0.8,<1",
+    "setuptools>=69",
 ]
 
 [tool.setuptools]
