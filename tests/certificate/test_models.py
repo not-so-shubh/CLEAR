@@ -114,9 +114,13 @@ def test_certificate_public_api_is_exact() -> None:
         "ALLOCATION_CERTIFICATE_DIGEST_VERSION",
         "ALLOCATION_CERTIFICATE_VERSION",
         "AllocationCertificate",
+        "AllocationCertificateParseError",
+        "AllocationCertificateParseFailureCode",
+        "MAX_CANONICAL_CERTIFICATE_BYTES",
         "allocation_certificate_digest",
         "build_allocation_certificate",
         "canonical_allocation_certificate_bytes",
+        "parse_canonical_allocation_certificate",
     )
 
 
