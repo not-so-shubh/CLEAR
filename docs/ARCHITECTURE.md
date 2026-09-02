@@ -1,5 +1,10 @@
 # CLEAR Architecture
 
+> **Historical Week-2 document.** This file records the Week-2 architecture boundary. The
+> normative contract for post-Week-2 final-system development is
+> [FINAL_SYSTEM_CONTRACT.md](FINAL_SYSTEM_CONTRACT.md). Existing Week-2 v1 protocol semantics and
+> frozen evidence remain versioned historical contracts.
+
 ## Slice 0 status
 
 This document reserves CLEAR's Week-2 architectural boundaries. Slice 0 establishes only the
