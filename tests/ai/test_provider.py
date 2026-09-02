@@ -199,6 +199,10 @@ def test_public_api_is_exact() -> None:
     assert ai.__all__ == (
         "AI_PROVIDER_REQUEST_V1_VERSION",
         "AI_PROVIDER_RESPONSE_V1_VERSION",
+        "BUYER_INTENT_CANDIDATE_V1_VERSION",
+        "BUYER_INTENT_INSTRUCTION_V1_VERSION",
+        "BUYER_INTENT_RULE_CANDIDATE_V1_VERSION",
+        "BUYER_POLICY_FREEZE_CONTEXT_V1_VERSION",
         "AIProvider",
         "AIProviderError",
         "AIProviderErrorCode",
@@ -207,7 +211,17 @@ def test_public_api_is_exact() -> None:
         "AIProviderResponseFormat",
         "AIProviderResponseV1",
         "AIProviderTask",
+        "BuyerIntentCandidateV1",
+        "BuyerIntentFreezeError",
+        "BuyerIntentFreezeErrorCode",
+        "BuyerIntentParseError",
+        "BuyerIntentParseFailureCode",
+        "BuyerIntentRuleCandidateV1",
+        "BuyerPolicyFreezeContextV1",
+        "freeze_buyer_policy_v2",
+        "interpret_buyer_intent_v1",
         "invoke_ai_provider_v1",
+        "parse_buyer_intent_candidate_v1",
     )
     for private_name in (
         "MAX_AI_INSTRUCTION_BYTES",

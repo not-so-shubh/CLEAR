@@ -1,3 +1,21 @@
+from clear_market.ai.buyer_intent import (
+    BUYER_INTENT_CANDIDATE_V1_VERSION,
+    BUYER_INTENT_INSTRUCTION_V1_VERSION,
+    BUYER_INTENT_RULE_CANDIDATE_V1_VERSION,
+    BUYER_POLICY_FREEZE_CONTEXT_V1_VERSION,
+    BuyerIntentCandidateV1,
+    BuyerIntentFreezeError,
+    BuyerIntentFreezeErrorCode,
+    BuyerIntentRuleCandidateV1,
+    BuyerPolicyFreezeContextV1,
+    freeze_buyer_policy_v2,
+    interpret_buyer_intent_v1,
+)
+from clear_market.ai.buyer_intent_parsing import (
+    BuyerIntentParseError,
+    BuyerIntentParseFailureCode,
+    parse_buyer_intent_candidate_v1,
+)
 from clear_market.ai.provider import (
     AI_PROVIDER_REQUEST_V1_VERSION,
     AI_PROVIDER_RESPONSE_V1_VERSION,
@@ -15,6 +33,10 @@ from clear_market.ai.provider import (
 __all__ = (
     "AI_PROVIDER_REQUEST_V1_VERSION",
     "AI_PROVIDER_RESPONSE_V1_VERSION",
+    "BUYER_INTENT_CANDIDATE_V1_VERSION",
+    "BUYER_INTENT_INSTRUCTION_V1_VERSION",
+    "BUYER_INTENT_RULE_CANDIDATE_V1_VERSION",
+    "BUYER_POLICY_FREEZE_CONTEXT_V1_VERSION",
     "AIProvider",
     "AIProviderError",
     "AIProviderErrorCode",
@@ -23,5 +45,15 @@ __all__ = (
     "AIProviderResponseFormat",
     "AIProviderResponseV1",
     "AIProviderTask",
+    "BuyerIntentCandidateV1",
+    "BuyerIntentFreezeError",
+    "BuyerIntentFreezeErrorCode",
+    "BuyerIntentParseError",
+    "BuyerIntentParseFailureCode",
+    "BuyerIntentRuleCandidateV1",
+    "BuyerPolicyFreezeContextV1",
+    "freeze_buyer_policy_v2",
+    "interpret_buyer_intent_v1",
     "invoke_ai_provider_v1",
+    "parse_buyer_intent_candidate_v1",
 )
