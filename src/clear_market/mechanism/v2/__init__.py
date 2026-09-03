@@ -1,3 +1,4 @@
+from clear_market.mechanism.v2.allocator import allocate_market_v2
 from clear_market.mechanism.v2.contracts import (
     ALLOCATION_LINE_V2_VERSION,
     ALLOCATION_V2_VERSION,
@@ -20,4 +21,5 @@ __all__ = (  # noqa: RUF022
     "AllocationV2",
     "MechanismV2ErrorCode",
     "MechanismV2Error",
+    "allocate_market_v2",
 )

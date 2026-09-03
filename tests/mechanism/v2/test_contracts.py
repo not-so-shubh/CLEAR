@@ -117,6 +117,7 @@ def test_public_api_is_exact() -> None:
         "AllocationV2",
         "MechanismV2ErrorCode",
         "MechanismV2Error",
+        "allocate_market_v2",
     )
 
 
