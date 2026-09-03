@@ -332,6 +332,10 @@ def test_versions_and_public_api_are_exact() -> None:
         "AllocationCertificateV2",
         "canonical_allocation_certificate_v2_bytes",
         "allocation_certificate_v2_digest",
+        "MAX_CANONICAL_ALLOCATION_CERTIFICATE_V2_BYTES",
+        "AllocationCertificateV2ParseFailureCode",
+        "AllocationCertificateV2ParseError",
+        "parse_canonical_allocation_certificate_v2",
     )
 
 
