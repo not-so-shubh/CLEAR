@@ -90,6 +90,20 @@ def test_versions_enums_and_public_api_are_exact() -> None:
         "canonical_razorpay_route_mapping_request_v1_bytes",
         "razorpay_route_mapping_fingerprint_v1",
         "build_razorpay_route_mapping_v1",
+        "RAZORPAY_WEBHOOK_INGRESS_V1_VERSION",
+        "RAZORPAY_WEBHOOK_EVENT_V1_VERSION",
+        "RAZORPAY_WEBHOOK_RESULT_V1_VERSION",
+        "RAZORPAY_WEBHOOK_RAW_BODY_DIGEST_V1_VERSION",
+        "RazorpayWebhookVerificationConfigV1",
+        "RazorpayWebhookEventTypeV1",
+        "RazorpayWebhookPaymentStatusV1",
+        "RazorpayWebhookDispositionV1",
+        "RazorpayWebhookEventV1",
+        "RazorpayWebhookResultV1",
+        "RazorpayWebhookFailureCode",
+        "RazorpayWebhookError",
+        "razorpay_webhook_raw_body_digest_v1",
+        "authenticate_and_record_razorpay_webhook_v1",
     )
 
 
