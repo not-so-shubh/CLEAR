@@ -75,6 +75,21 @@ def test_versions_enums_and_public_api_are_exact() -> None:
         "canonical_razorpay_order_create_intent_v1_bytes",
         "razorpay_order_create_fingerprint_v1",
         "create_razorpay_test_order_v1",
+        "RAZORPAY_LINKED_ACCOUNT_BINDING_V1_VERSION",
+        "RAZORPAY_ROUTE_MAPPING_REQUEST_V1_VERSION",
+        "RAZORPAY_ROUTE_TRANSFER_LINE_V1_VERSION",
+        "RAZORPAY_ROUTE_MAPPING_PLAN_V1_VERSION",
+        "RAZORPAY_ROUTE_MAPPING_FINGERPRINT_V1_VERSION",
+        "RazorpayLinkedAccountBindingStateV1",
+        "RazorpayLinkedAccountBindingV1",
+        "RazorpayRouteMappingRequestV1",
+        "RazorpayRouteTransferLineV1",
+        "RazorpayRouteMappingPlanV1",
+        "RazorpayRouteMappingFailureCode",
+        "RazorpayRouteMappingError",
+        "canonical_razorpay_route_mapping_request_v1_bytes",
+        "razorpay_route_mapping_fingerprint_v1",
+        "build_razorpay_route_mapping_v1",
     )
 
 
