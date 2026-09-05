@@ -544,11 +544,7 @@ def test_surviving_ui_uses_only_canonical_evidence_taxonomy_labels() -> None:
     assert "CLAIMS DISPLAYED" not in source
 
 
-def test_reviewed_historical_ai_wording_is_bounded_and_not_official_openai() -> None:
-    expected_merchant = (
-        "CLEAR's merchant-proposal task was exercised through an externally supplied "
-        "OpenAI-compatible provider. The reviewed run returned a schema-valid"
-    )
+def test_reviewed_ai_wording_is_current_bounded_and_not_official_openai() -> None:
     expected_explanation = (
         "CLEAR's certificate-explanation task was exercised through an externally supplied "
         "OpenAI-compatible provider after independent certificate verification."
@@ -558,8 +554,12 @@ def test_reviewed_historical_ai_wording_is_bounded_and_not_official_openai() -> 
     ]
 
     for source in sources:
-        assert expected_merchant in source.replace("\n", " ")
-        assert expected_explanation in source.replace("\n", " ")
+        normalized = source.replace("\n", " ")
+        assert "reviewed public judge run" in normalized
+        assert "externally supplied OpenAI-compatible provider" in normalized
+        assert "advisory merchant proposal" in normalized
+        assert expected_explanation in normalized
+        assert "schema-valid `NO_OFFER`" not in normalized
         assert "through an official OpenAI" not in source
         assert "official OpenAI provider" not in source
         assert "official OpenAI API" not in source

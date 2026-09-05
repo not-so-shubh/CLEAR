@@ -3,9 +3,9 @@
 **NORMATIVE FOR `heterogeneous-pay-as-bid-v2` AND
 `quantity-cost-soft-objective-v2`.**
 
-This document freezes the solver-independent economic semantics, result contract, trust boundary,
-and future implementation obligations for those two versions. Slice 18A defines no allocator,
-constraint evaluator, solver integration, oracle, certificate, or financial execution path.
+This document defines the solver-independent economic semantics, result contract, and trust
+boundary for those two versions. The production allocator, independent oracle, certificate, and
+financial execution layers implement separate responsibilities around this contract.
 
 ## 1. Scope
 
@@ -16,7 +16,7 @@ merchant, hard constraints, soft preferences, explicit provenance, bounded integ
 deterministic tie resolution.
 
 It does not support N buyers, combinatorial package bids, complements, XOR bundles, fractional
-quantities, merchant-side payment routing, proof of fulfillment, or future inventory reservations.
+quantities, merchant-side payment routing, proof of fulfillment, or inventory reservations.
 The mechanism output is not permission to move money.
 
 The mechanism version is exactly `heterogeneous-pay-as-bid-v2`. The objective version is exactly
@@ -24,7 +24,7 @@ The mechanism version is exactly `heterogeneous-pay-as-bid-v2`. The objective ve
 
 ## 2. Trust boundary
 
-The future production API is conceptually:
+The production allocation boundary is:
 
 ```text
 allocate_market_v2(
@@ -34,19 +34,18 @@ allocate_market_v2(
 ) -> AllocationV2
 ```
 
-This function is not implemented in Slice 18A. A `SignedMerchantOfferV2` Python value is intended to
-carry authenticated evidence, but its mere presence does not prove that its signature or source
-state was verified. The mechanism is not a cryptographic verifier.
+A `SignedMerchantOfferV2` Python value carries signed evidence, but its mere presence does not prove
+that its signature or source state was verified. The mechanism is not a cryptographic verifier.
 
 The authorized trust path is:
 
 ```text
 canonical signed-offer bytes
-    → Slice 16C authentication and source verification
+    → authentication and source verification
     → signed-offer value
-    → Slice 18B deterministic allocation
-    → Slice 19A certificate
-    → Slice 19B independent verification, including offer authentication
+    → deterministic allocation
+    → AllocationCertificateV2
+    → independent verification, including offer authentication
     → Money Governor
 ```
 
@@ -57,7 +56,7 @@ may receive positive quantities. `max_winners` counts distinct merchants with po
 
 ## 3. Input validation
 
-Slice 18B must apply this exact failure precedence:
+The allocator applies this exact failure precedence:
 
 1. require the exact `BuyerPolicyV2` type;
 2. defensively perform fresh `BuyerPolicyV2` validation;
@@ -133,12 +132,12 @@ MAX_SOFT_PREFERENCES`.
 Cost precedes soft preferences because the current buyer policy supplies no monetary utility weight for a soft preference.
 
 The policy supplies no weight, utility, willingness-to-pay, or monetary tradeoff from which CLEAR
-could derive an exchange rate. A future weighted-utility mechanism requires a new policy and
+could derive an exchange rate. A weighted-utility mechanism would require a new policy and
 objective version.
 
 ## 6. Feasible allocation
 
-For every canonical hard-qualifying line `l`, the future allocator has an integer quantity `x_l`
+For every canonical hard-qualifying line `l`, the allocator has an integer quantity `x_l`
 such that:
 
 ```text
@@ -193,7 +192,8 @@ most one offer per merchant.
 
 For status `FEASIBLE`, lines are nonempty, fulfilled quantity is positive, and winner count is
 positive. The result model alone does not re-evaluate the policy's minimum quantity, budget, or
-winner cap; Slice 18B enforces those cross-object rules and Slice 19B independently replays them.
+winner cap; the allocator enforces those cross-object rules and the verifier independently replays
+them.
 
 ## 7. Pay-as-bid payment
 
@@ -256,9 +256,8 @@ economic infeasibility.
 
 ## 11. CP-SAT production strategy
 
-Slice 18B will use OR-Tools CP-SAT, but Slice 18A adds no dependency or solver code. The mathematical
-contract above remains solver-independent. For each hard-qualifying line, the effective upper bound
-is:
+The production allocator uses OR-Tools CP-SAT. The mathematical contract above remains
+solver-independent. For each hard-qualifying line, the effective upper bound is:
 
 ```text
 if unit_price.amount_paise > 0:
@@ -280,9 +279,8 @@ result raises `MechanismV2Error(SOLVER_FAILURE)`.
 
 ## 12. Independent oracle
 
-Slice 18C's independent oracle must not import the production allocator, CP-SAT model builder,
-objective builder, solver wrapper, or OR-Tools. For bounded cases it should use exhaustive
-enumeration, structurally independent dynamic programming, or another directly specified exact
+The independent oracle does not import the production allocator, CP-SAT model builder, objective
+builder, solver wrapper, or OR-Tools. For bounded cases it uses a separately implemented exact
 reference algorithm.
 
 The oracle independently implements hard qualification, provenance checks, pay-as-bid payment,
@@ -293,7 +291,7 @@ allowed; sharing winner, payment, or search implementation is forbidden.
 
 CLEAR does not claim that heterogeneous-pay-as-bid-v2 is truthful, strategy-proof, incentive compatible, collusion resistant, or Sybil resistant.
 
-The Week-2 reverse-second-price truthful-bidding claim remains limited to its frozen standardized,
+The versioned v1 reverse-second-price truthful-bidding claim is limited to its frozen standardized,
 single-dimensional assumptions and does not transfer to V2. Deterministic canonical tie resolution
 is not a fairness guarantee.
 
@@ -301,6 +299,7 @@ is not a fairness guarantee.
 `AllocationCertificateV2`, financial authorization, an `ExecutionPlan`, or permission to call
 Razorpay. A stored allocation is never sufficient for money movement. It binds the existing
 `sha256-buyer-policy-v2-clear-json-v1` policy commitment, introduces no canonicalization or hash
-algorithm, and has no allocation digest in Slice 18A.
+algorithm, and has no allocation digest of its own.
 
-Explanation AI remains deferred until an independently verified `AllocationCertificateV2` exists.
+Explanation AI is available only after an `AllocationCertificateV2` has passed independent
+verification.

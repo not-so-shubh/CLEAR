@@ -2,29 +2,38 @@
 
 ## Environment
 
-CLEAR requires Python `>=3.12,<3.13`. Install the project and its declared development dependencies with:
+CLEAR requires Python `>=3.12,<3.13`. Create an isolated environment and install the declared
+development dependencies:
 
 ```sh
-python -m pip install -e ".[dev]"
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
 ```
 
 ## Normal verification
 
-From the repository root, run:
+Run these commands from the repository root. Each repository-wide command explicitly excludes the
+protected original holdout path.
 
 ```sh
-python -m pip install -e ".[dev]"
-python -m pip check
-python -m ruff check .
-python -m ruff format --check .
-python -m mypy src
-python -m pytest -q
-PYTHONHASHSEED=1 python -m pytest -q
+.venv/bin/python -m pip check
+.venv/bin/python -m ruff check . \
+  --exclude benchmarks/agentmarketbench_v1/final_holdout_v1
+.venv/bin/python -m ruff format --check . \
+  --exclude benchmarks/agentmarketbench_v1/final_holdout_v1
+.venv/bin/python -m mypy src
+.venv/bin/python -m mypy \
+  ui/demo_bootstrap.py ui/judge_demo.py ui/public_demo.py
+.venv/bin/python -m pytest -q \
+  --ignore=benchmarks/agentmarketbench_v1/final_holdout_v1
+PYTHONHASHSEED=1 .venv/bin/python -m pytest -q \
+  --ignore=benchmarks/agentmarketbench_v1/final_holdout_v1
 ```
 
-The ordinary test suite validates the frozen report snapshot but does not execute the frozen 10,000-market benchmark.
+These tests validate committed evidence and application behavior. They do not regenerate or run a
+final holdout.
 
-## Frozen evaluation evidence
+## Historical deterministic differential evaluation
 
 - Evaluated source commit: `67f1f6f772e52d9207a6555e403a9edb53e7bf63`
 - Evidence freeze commit: `97e1113520f08b645885e3e6aa46d72eab5caaab`
@@ -38,91 +47,58 @@ The ordinary test suite validates the frozen report snapshot but does not execut
 - Seed-sequence SHA-256: `75e00e23b222fe03242ac7d115909c0a12abc50ba10844337ec9d0ea4dd507f2`
 - Reproducibility fingerprint: `89cb65d3accaba76d90a1c6091503480ab6c3edeabf8e863613e86c9d2703867`
 
-Observed:
+This is the earlier `deterministic-market-generator-v1` differential evaluation. It is not the
+AgentMarketBench comparator report. Its 10,000 frozen seeds recorded:
 
-- 24,990 admission attempts
-- 0 admission rejections
-- 6,271 feasible markets
-- 3,729 infeasible markets
-- 0 differential mismatches
-- 0 budget violations
-- 0 allocation-quantity violations
-- 0 winner-evidence violations
-- 0 hard failures
-- 0 failed markets
+- 24,990 admission attempts;
+- 6,271 feasible and 3,729 infeasible markets;
+- zero admission rejections, differential mismatches, budget violations, allocation-quantity
+  violations, winner-evidence violations, hard failures, or failed markets.
 
-The frozen evaluation demonstrates that, for the exact deterministic-market-generator-v1 distribution over the 10,000 frozen seeds with five sellers, the production allocator agreed with the independent oracle on all frozen differential fields and the runner observed zero defined hard invariant failures.
+For the exact deterministic generator distribution over 10,000 frozen seeds with five sellers, the
+production allocator agreed with the independent oracle on every frozen differential field. The
+runner observed none of its defined hard invariant failures.
 
-Verify the report bytes using only the Python standard library:
+Verify the committed report bytes without regenerating benchmark data:
 
 ```sh
-python - <<'PY'
-import hashlib
-from pathlib import Path
-
-path = Path("benchmarks/frozen_evaluation_report_v1.json")
-expected = "d63d4217486daf9ca1cc4840bbcd091b5589507cfa376a232eb61fc08ed7e2fe"
-actual = hashlib.sha256(path.read_bytes()).hexdigest()
-if actual != expected:
-    raise SystemExit(f"SHA-256 mismatch: expected {expected}, got {actual}")
-print(actual)
-PY
-```
-
-## Optional historical evaluation replay
-
-This optional procedure reproduces the frozen run from the exact evaluated source revision. It was not executed while creating this guide. From the current repository root, create an isolated detached worktree:
-
-```sh
-git worktree add --detach ../CLEAR-frozen-eval 67f1f6f772e52d9207a6555e403a9edb53e7bf63
-cd ../CLEAR-frozen-eval
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
 .venv/bin/python - <<'PY'
-import json
+from hashlib import sha256
 from pathlib import Path
 
-from clear_market.benchmark import (
-    FROZEN_EVALUATION_SEEDS,
-    run_differential_benchmark,
-)
-
-report = run_differential_benchmark(
-    FROZEN_EVALUATION_SEEDS,
-    seller_count=5,
-)
-serialized = (
-    json.dumps(
-        report.model_dump(mode="json"),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    + "\n"
-)
-Path("/tmp/clear_frozen_evaluation_replay.json").write_text(serialized, encoding="utf-8")
-print(serialized, end="")
-PY
-.venv/bin/python - <<'PY'
-import hashlib
-from pathlib import Path
-
-path = Path("/tmp/clear_frozen_evaluation_replay.json")
-print(hashlib.sha256(path.read_bytes()).hexdigest())
+report = Path("benchmarks/frozen_evaluation_report_v1.json")
+print(f"{sha256(report.read_bytes()).hexdigest()}  {report}")
 PY
 ```
 
-The expected replay SHA-256 is `d63d4217486daf9ca1cc4840bbcd091b5589507cfa376a232eb61fc08ed7e2fe`. Matching it demonstrates byte-for-byte reproduction of the frozen report transport under the committed runner/generator contract.
+Expected output:
 
-After reviewing the output, remove the isolated worktree:
-
-```sh
-cd -
-git worktree remove ../CLEAR-frozen-eval
+```text
+d63d4217486daf9ca1cc4840bbcd091b5589507cfa376a232eb61fc08ed7e2fe  benchmarks/frozen_evaluation_report_v1.json
 ```
+
+## Final AgentMarketBench replacement evaluation
+
+The final judge-facing comparator evidence is
+`docs/AGENTMARKETBENCH_REPLACEMENT_FINAL_RESULTS_V1.md`:
+
+- Evaluated source commit: `6eadd5b6eb737649ec35747a73d90b69c403e24f`
+- Final cases: 10,000
+- Manifest SHA-256: `27c8cc724634cae4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
+- Evidence root SHA-256: `9b9d3fd24d0efe0fed26cdaf63fc5ff6ff4b843ad8061d70c09232c021500c51`
+
+This replacement evaluation is permanently closed. **DO NOT RERUN IT.** The committed results
+document reports the stored comparison metrics and provenance; it is not an instruction to open or
+regenerate either final holdout.
 
 ## Interpretation limits
 
-This does not prove correctness outside the tested generator distribution, and it does not establish collusion resistance, Sybil resistance, fulfillment correctness, or broader strategy-proofness.
+Each artifact applies only to its recorded source revision, data-generation protocol, and frozen
+cases. Neither proves correctness outside its distribution, collusion resistance, Sybil resistance,
+fulfillment correctness, or broader strategy-proofness. The full-information oracle is a latent
+upper bound, not a deployable method. Later code, tests, and documentation do not retroactively
+change either frozen result.
 
-The evaluation concerns the exact evaluated source commit recorded above. Later test, CI, and documentation commits do not retroactively change the frozen evaluation result. The normal CI suite verifies the evidence artifact but does not rerun the frozen benchmark.
+The [replacement final results](docs/AGENTMARKETBENCH_REPLACEMENT_FINAL_RESULTS_V1.md) contain the
+benchmark comparison, paired descriptive intervals, manipulation observations, and other measured
+limitations.

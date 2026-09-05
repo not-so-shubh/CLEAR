@@ -1,10 +1,9 @@
 # CLEAR Current Architecture
 
-This document describes the implemented architecture at the current repository head. The
-[final system contract](FINAL_SYSTEM_CONTRACT.md) defines the broader trust and safety contract;
-the [V2 mechanism contract](MECHANISM_V2_CONTRACT.md) is the normative economic specification.
-Older Week-2 and v1 documents remain historical, versioned contracts rather than the current
-system narrative.
+This document describes the implemented architecture. The
+[V2 mechanism contract](MECHANISM_V2_CONTRACT.md) is the normative economic specification, and the
+[reproducibility guide](../REPRODUCIBILITY.md) records the frozen evaluation identity and safe
+verification commands.
 
 ## 1. Authority model
 
@@ -128,9 +127,10 @@ the returned candidate, and freezes it with trusted identifiers, eligible mercha
 mechanism version, and objective version. The result is a `BuyerPolicyV2`; the model cannot replace
 the trusted context.
 
-The implementation and fake-provider tests cover parsing and semantic mismatches. The concrete
-live path was exercised once successfully for buyer intent using an externally supplied compatible
-provider. No official OpenAI endpoint claim is made.
+The implementation and controlled-provider tests cover parsing and semantic mismatches. The public
+judge product has also exercised buyer intent through an externally supplied OpenAI-compatible
+provider before the candidate passed through the deterministic freeze. No official OpenAI endpoint
+claim is made.
 
 ### 4.2 Merchant proposal
 
@@ -141,11 +141,11 @@ minimum prices, source commitments, and related invariants before producing `Mer
 Signing and verification create `SignedMerchantOfferV2` evidence bound to a configured merchant
 identity.
 
-This path is implemented and tested with controlled fake providers. CLEAR's merchant-proposal task
-was exercised through an externally supplied OpenAI-compatible provider. The reviewed run
-returned a schema-valid `NO_OFFER` and passed the strict advisory production boundary. This does
-not demonstrate signing, authentication, admission, allocation, winner selection, or payment
-authorization.
+This path is implemented and tested with controlled providers. In the reviewed public judge run,
+an externally supplied OpenAI-compatible provider produced an advisory merchant proposal. The
+merchant then explicitly submitted it through deterministic offer construction, signing,
+authentication, and admission. The AI response itself supplied none of that authority and did not
+choose the allocation or authorize payment.
 
 ### 4.3 Certificate explanation
 
@@ -171,7 +171,23 @@ four paid calls, with an absolute run maximum of 16. It reports sanitized correc
 end-to-end timings. The harness is implemented and fake-tested; no real comparison result is
 committed or claimed.
 
-## 5. V2 commerce inputs and authenticated offers
+## 5. Public deployment
+
+`ui.public_demo` runs the reviewed Buyer, Merchant, and Clearing product as one application process.
+It bootstraps one fresh product database in ephemeral storage, binds the existing server to the
+platform port, and preserves externally supplied AI and Razorpay Test Mode configuration. Provider
+calls happen only after an explicit browser action; startup and page load make no provider calls.
+
+The deployment uses one replica and one shared SQLite-backed sandbox. All visitors to that process
+see the same demo state, and a restart creates a fresh session. Provider credentials remain
+server-side and are not embedded in HTML or JavaScript. This is public judge/demo infrastructure,
+not a multi-tenant production service.
+
+`ui.judge_demo` remains the local deterministic rehearsal. It deliberately removes provider
+configuration before serving a seeded `OPEN` market, so it cannot be mistaken for live AI or
+Razorpay evidence.
+
+## 6. V2 commerce inputs and authenticated offers
 
 The commerce layer uses immutable, versioned models for:
 
@@ -189,7 +205,7 @@ cover canonical offer bytes, and verification binds the declared merchant to a t
 This gives deterministic attribution and tamper evidence. It does not establish that the signed
 catalog or inventory corresponds to physical reality.
 
-## 6. Production allocation
+## 7. Production allocation
 
 The V2 mechanism identity is `heterogeneous-pay-as-bid-v2`; its objective identity is
 `quantity-cost-soft-objective-v2`.
@@ -211,7 +227,7 @@ The mechanism supports partial fulfillment, split awards, multiple winners, hete
 substitutable SKUs, merchant capacity, and integer paise arithmetic. It is not Vickrey and carries
 no general incentive-compatibility claim.
 
-## 7. Certificate construction and verification
+## 8. Certificate construction and verification
 
 `AllocationCertificateV2` is a canonical, digestible evidence object. It binds the policy and
 market context, authenticated offer/admission evidence, mechanism and objective versions, and the
@@ -243,7 +259,7 @@ configured trust roots. It is not:
 - a legal settlement instrument; or
 - proof of payment settlement.
 
-## 8. Money Governor and execution plan
+## 9. Money Governor and execution plan
 
 `authorize_execution_v1` is the financial authority boundary. It first requires successful
 `AllocationCertificateV2` verification and then validates explicit market execution, buyer
@@ -259,17 +275,17 @@ The ledger enforces duplicate execution, certificate, market, and provider-refer
 uses canonical request fingerprints. These controls support idempotency and auditability; they do
 not turn an external network into exactly-once delivery.
 
-## 9. Razorpay Test Mode adapter boundary
+## 10. Razorpay Test Mode adapter boundary
 
 The current payment boundary is intentionally limited to Razorpay Test Mode code paths.
 
-### 9.1 Order path
+### 10.1 Order path
 
 `create_razorpay_test_order_v1` obtains the governor-approved plan, constructs the exact provider
 order intent, records its fingerprint, and performs or reconciles the provider operation. Provider
 identifiers and returned facts are validated before durable recording.
 
-### 9.2 Webhook and state replay
+### 10.2 Webhook and state replay
 
 `authenticate_and_record_razorpay_webhook_v1` authenticates the raw webhook body before recording a
 normalized immutable event. `derive_razorpay_payment_state_v1` is a read-only deterministic fold
@@ -277,7 +293,7 @@ over authenticated ledger observations. It derives order-created, payment-failed
 payment-authorized, or payment-captured state; it does not query the network or infer unrecorded
 facts.
 
-### 9.3 Route mapping and transfers
+### 10.3 Route mapping and transfers
 
 `build_razorpay_route_mapping_v1` maps approved execution transfer lines to explicit active linked
 account bindings. Transfer work requires a governor-approved plan, a reconciled order, and recorded
@@ -288,22 +304,24 @@ validated observations.
 Transfer creation means the provider accepted or exposed a transfer object. It does not mean the
 transfer settled, became irreversible, or resulted in physical fulfillment.
 
-### 9.4 Recovery and orchestration
+### 10.4 Recovery and orchestration
 
 Order recovery can resolve uncertain create attempts by provider reference rather than blindly
 issuing another POST. Normal orchestration coordinates governor authorization, order, payment
 state, Route mapping, and transfers. The graceful path converts recognized uncertainty into an
 explicit recovery disposition instead of treating ambiguity as success.
 
-The provider code and controlled-transport tests cover these behaviors. Separately, one reviewed
-historical external Razorpay Test Mode exercise ran the production order path: order creation
-succeeded, the provider reference was persisted, and a second identical call retrieved the existing
-order from the provider. This evidence is limited to that order path; it is not evidence that every
-Razorpay path ran live. That external exercise did not demonstrate payment capture, customer payment,
-Route transfer creation, settlement, refunds, reversals, disputes, fulfillment, or real-money movement.
+The provider code and controlled-transport tests cover these behaviors. The reviewed public judge
+run also exercised the production order path against Razorpay Test Mode. Its first request returned
+`CREATED`; an identical second request returned `EXISTING` through provider-backed retrieval. The
+provider order, execution ID, receipt, and ₹2,250 / 225000 paise INR amount were unchanged.
+
+That public observation is limited to order creation and existing-order resolution. It does not
+show customer payment, capture, public-run webhook handling, Route transfer creation, settlement,
+refunds, reversals, disputes, fulfillment, real-money movement, or exactly-once external delivery.
 Refunds, reversals, settlement processing, disputes, and fulfillment are not implemented.
 
-## 10. Failure and recovery semantics
+## 11. Failure and recovery semantics
 
 External calls can fail before a request, after the provider accepts it, or after the response is
 lost. CLEAR therefore distinguishes safe failure from uncertain outcome:
@@ -319,7 +337,7 @@ lost. CLEAR therefore distinguishes safe failure from uncertain outcome:
 This is fail-closed authorization plus explicit reconciliation. It is not a claim of distributed
 transactions or exactly-once external effects.
 
-## 11. Benchmark and evidence boundary
+## 12. Benchmark and evidence boundary
 
 AgentMarketBench is separate from runtime authority. The replacement final holdout stores 10,000
 deterministic scenarios, method outputs, descriptive paired intervals, manifests, and integrity
@@ -336,14 +354,15 @@ The stored result supports these narrow statements:
   equivalence.
 - The full-information oracle remains materially above CLEAR and is a latent upper bound, not a
   production competitor.
-- Measured hard-constraint violations and manipulation successes remain limitations.
+- Manipulation succeeded in 47 of 1,310 applicable observations, and the mean hard-constraint
+  violation rate was 1/125 (`0.008`). These remain measured limitations.
 
 Benchmark latency is environment-sensitive, and the holdout does not exercise the AI provider,
 certificate explanation, Money Governor, Razorpay adapter, recovery orchestration, settlement, or
 physical fulfillment. Exact results and caveats are in the
 [replacement final results](AGENTMARKETBENCH_REPLACEMENT_FINAL_RESULTS_V1.md).
 
-## 12. Package ownership
+## 13. Package ownership
 
 | Package | Responsibility |
 | --- | --- |
@@ -366,19 +385,19 @@ The repository also retains v1 domain, lifecycle, mechanism, certificate, verifi
 benchmark packages. They support the historical homogeneous reverse-second-price contract and are
 not silently substituted for V2 behavior.
 
-## 13. Known limitations and unimplemented areas
+## 14. Known limitations and unimplemented areas
 
 - one buyer × N sellers only; no N-buyer exchange;
 - no trusted physical inventory or fulfillment oracle;
 - no external receipt system proving transcript completeness;
 - no refunds, reversals, settlement processor, disputes, or shipment workflow;
-- no live payment-capture, transfer, settlement, refund/reversal, or real-money evidence; demonstrated
-  external Razorpay evidence is limited to the Test Mode order path;
+- no public-run payment-capture, webhook, transfer, settlement, refund/reversal, or real-money
+  evidence; reviewed external Razorpay evidence is limited to the Test Mode order path;
 - no exactly-once guarantee across provider/network boundaries;
 - no collusion or Sybil resistance guarantee;
 - no formal verification, zero-knowledge proof, or blockchain layer; and
 - no universal AI-model or market-mechanism ranking.
 
-For the exact normative boundaries, read the [final system contract](FINAL_SYSTEM_CONTRACT.md), the
-[V2 mechanism contract](MECHANISM_V2_CONTRACT.md), and the
-[reproducibility guide](../REPRODUCIBILITY.md).
+For the normative economic boundaries, read the
+[V2 mechanism contract](MECHANISM_V2_CONTRACT.md). For evidence identity and safe verification, read
+the [reproducibility guide](../REPRODUCIBILITY.md).

@@ -44,8 +44,7 @@ record; R2 itself did not open the partition.
 
 ## Incident lineage and permanent partition boundaries
 
-The [historical original final holdout](AGENTMARKETBENCH_FINAL_HOLDOUT_V1.md)
-was opened once from source commit
+The historical original final holdout was opened once from source commit
 `93073144db6128d7e23558545e5d544e350ad292`. Attempt #1 persisted exactly
 3,000 cases covering `2_000_000_000 .. 2_000_002_999`, as six semantic and
 six timing shards of 500 cases each. It then stopped on the invariant
