@@ -2,101 +2,156 @@
 
 **Proof-Carrying Market Infrastructure for Autonomous AI Commerce**
 
-> AI interprets fuzzy commercial intent; deterministic systems decide which economic agreement
-> wins and where the money goes.
+> AI proposes. Deterministic rules decide. Proof carries the decision. Money waits for verified
+> authority.
 
-CLEAR is an executable trust boundary for commerce among autonomous agents. A buyer can express
-what it wants in natural language, independent seller agents can construct offers from their own
-catalogs and policies, and a deterministic core can select an agreement, emit replayable evidence,
-and authorize a payment plan. The language model is useful at the ambiguity boundary; it is never
-the authority for constraints, winners, prices, or money movement.
+AI is good at understanding a fuzzy request. It is much less suitable for deciding who wins or who
+gets paid. CLEAR separates those jobs.
+
+A buyer can describe what they want in natural language. AI can propose a candidate, but
+deterministic code parses it against trusted context and freezes the actual rules as
+`BuyerPolicyV2`. Merchants submit signed offers. CLEAR allocates the market, creates an
+`AllocationCertificateV2`, replays the decision with an independent verifier, and only then lets
+the Money Governor issue an `ExecutionPlanV1`.
+
+Raw AI never authorizes money. Neither does a raw allocation. The browser only presents server
+results; it never constructs authority, awarded quantities, verifier or Governor decisions, or an
+execution plan. Production code on the server remains authoritative.
+
+CLEAR is market infrastructure, not a shopping assistant, procurement/reverse-auction dashboard,
+agent wallet, Razorpay wrapper, or generic audit log. Its proofs are replayable certificates, not
+blockchain records, zero-knowledge proofs, or formal verification.
 
 ## The invariant
 
 > **NO VALID CERTIFICATE = NO MONEY ACTION**
 
-An AI response, merchant proposal, stored allocation, or payment-provider request is insufficient
-on its own. Before any provider-side money action, CLEAR independently verifies the allocation
-certificate and passes it through the Money Governor, which produces the immutable execution plan
-that downstream adapters are allowed to use.
+An AI response, merchant proposal, stored allocation, or payment-provider request is not enough.
+CLEAR checks the certificate again before the Governor can issue the immutable plan used by
+payment adapters.
 
-## How CLEAR works
+## What happens in CLEAR
+
+1. AI helps interpret the buyer's request. A strict parser combines that candidate with trusted
+   context and freezes `BuyerPolicyV2`.
+2. Each merchant starts from its own trusted catalog, inventory, and pricing policy. Merchant AI
+   may suggest an offer, but deterministic rules build `MerchantOfferV2`; the submitted offer is
+   signed and authenticated.
+3. The market stays open until an explicit close. Only then does the deterministic multiwinner
+   allocator decide quantities, winners, and integer-paise payments.
+4. CLEAR records that result in `AllocationCertificateV2`. A separate verifier replays admission
+   and allocation instead of trusting the stored answer.
+5. The Money Governor accepts only a verified certificate plus explicit financial authorization.
+   If those checks succeed, it reserves the execution and issues `ExecutionPlanV1` for downstream
+   payment adapters.
+
+## Judge demo: one command
+
+```sh
+.venv/bin/python -m ui.judge_demo
+```
+
+The launcher creates an isolated temporary session and bootstraps a fresh product database. The
+sibling financial-ledger path is inside that session but remains absent at startup. The ledger is
+created only if the later authority path needs it.
+
+Before creating the local server, the launcher points its own process at the product database and
+removes AI-provider settings and Razorpay Test Mode credentials from its environment. That same
+process serves the UI. AI and Razorpay are disabled for this rehearsal, and neither is called
+automatically.
+
+Open `http://127.0.0.1:8765/#clearing`. The UI has exactly **BUYER → MERCHANT → CLEARING**;
+Evidence is not a fourth workspace. The market starts `OPEN` with two authenticated merchant offers
+and no winner. Closing the market is what triggers allocation.
+
+The review flow is straightforward:
+
+1. Open Clearing and close the market.
+2. Inspect the allocation and `AllocationCertificateV2`.
+3. Tamper with the certificate copy.
+4. Watch the independent verifier reject it and the Money Governor refuse authority.
+5. Return to the valid certificate and authorize it.
+6. Inspect the resulting `ExecutionPlanV1`.
+
+This launcher is always provider-disabled. It does not demonstrate live AI or live Razorpay, and it
+cannot be used to enable either one. Razorpay is **NOT DEMONSTRATED** in this judge run.
+
+## Authority path
 
 ```text
-AI / UNTRUSTED ADVISORY
+AI / ADVISORY
   buyer natural language
       -> buyer-intent candidate
 
 DETERMINISTIC / AUTHORITATIVE
   strict parse + validation + trusted-context freeze
       -> BuyerPolicyV2
-      -> merchant catalog + inventory snapshot + economic policy
+      -> trusted merchant catalog + inventory snapshot + economic policy
 
-AI / UNTRUSTED ADVISORY
-  per-merchant offer proposal
+AI / ADVISORY
+  optional per-merchant offer candidate
 
 DETERMINISTIC / AUTHORITATIVE
-  merchant-specific validation + offer construction
-      -> authenticated SignedMerchantOfferV2 values
-      -> heterogeneous multiwinner allocation
+  merchant-specific validation + deterministic MerchantOfferV2 construction
+      -> signed/authenticated offers
+      -> deterministic multiwinner allocation
       -> AllocationCertificateV2
       -> independent replay verifier
       -> Money Governor
-      -> immutable approved ExecutionPlanV1
+      -> ExecutionPlanV1
 
-EXTERNAL PROVIDER BOUNDARY
-  Razorpay Test Mode order operation
-
-DETERMINISTIC / AUTHORITATIVE
-  validated provider facts + authenticated webhooks + deterministic payment-state replay
+RAZORPAY TEST MODE PROVIDER BOUNDARY
+  order operation
+      -> validated provider facts + authenticated webhooks
+      -> deterministic payment-state replay
       -> captured-payment gate
-      -> transfer / recovery decision
-
-EXTERNAL PROVIDER BOUNDARY
-  Razorpay Route transfer creation or reconciliation when authorized
+      -> transfer / recovery
 ```
 
-The production path is **one buyer × N autonomous sellers**. It is not an N-buyer exchange, and
-the diagram does not imply that every subsystem has been exercised against a live external
-service.
+The production path is **one buyer × N autonomous sellers**, not an N-buyer exchange. The diagram
+shows the full implemented authority path. The provider-disabled judge demo exercises only the
+local steps described above.
+
+## Evidence taxonomy
+
+CLEAR uses exactly five evidence classes:
+
+1. **REAL LOCAL PRODUCTION LOGIC** — the actual production implementation ran locally.
+2. **DETERMINISTIC FIXTURE** — the inputs came from fixed, reproducible demo data.
+3. **FAKE/CONTROLLED EXTERNAL TRANSPORT** — the production provider boundary ran against a
+   controlled fake instead of a live service.
+4. **HISTORICAL LIVE EVIDENCE ONLY** — a reviewed earlier run reached a real external provider. It
+   says nothing about whether the current demo reached that provider.
+5. **NOT DEMONSTRATED** — the run being discussed provides no evidence for the capability.
+
+A deterministic demo can contain several of these classes at once. The allocator, certificate
+builder, independent verifier, and Money Governor are **REAL LOCAL PRODUCTION LOGIC** when the demo
+actually runs them. The same applies to the financial ledger and provider adapter when those parts
+of the path are used. Seeded buyer and merchant inputs are **DETERMINISTIC FIXTURE**. A controlled
+fake provider is **FAKE/CONTROLLED EXTERNAL TRANSPORT**.
+
+For judge startup, live AI is `NOT INVOKED BY BOOTSTRAP`; that is an operational state, not a sixth
+evidence class. The run supplies no live-AI evidence, and live Razorpay is **NOT DEMONSTRATED**.
 
 ## What is implemented
 
 | Area | Current status | Authority boundary |
 | --- | --- | --- |
-| Buyer-intent interpretation | Implemented and tested. The live buyer-intent path was exercised once successfully through an externally supplied OpenAI-compatible provider. | AI output is an untrusted candidate; strict parsing and trusted-context freezing produce `BuyerPolicyV2`. |
-| Merchant-offer proposal | Implemented and tested. CLEAR's merchant-proposal task was exercised through an externally supplied OpenAI-compatible provider. The reviewed run returned a schema-valid `NO_OFFER` and passed the strict advisory production boundary. This does not demonstrate signing, authentication, admission, allocation, winner selection, or payment authorization. | Each candidate is checked against that merchant's catalog, inventory, and economic policy before deterministic offer construction. |
-| Certificate explanation | Implemented and tested. CLEAR's certificate-explanation task was exercised through an externally supplied OpenAI-compatible provider after independent certificate verification. The reviewed run returned advisory claims whose citation references passed the implemented validation boundary. This does not mean AI verified the certificate, natural-language entailment was proven, explanation prose is authoritative, or allocation or money authority changed. | Explanation is advisory and is only produced for independently verified certificate evidence. |
+| Buyer-intent interpretation | Implemented and tested. One reviewed historical run exercised the live buyer-intent path through an externally supplied OpenAI-compatible provider. | AI supplies a candidate. Strict parsing and trusted-context freezing produce `BuyerPolicyV2`. |
+| Merchant-offer proposal | Implemented and tested. CLEAR's merchant-proposal task was exercised through an externally supplied OpenAI-compatible provider. The reviewed run returned a schema-valid `NO_OFFER` and passed the strict advisory production boundary. That run did not demonstrate signing, authentication, admission, allocation, winner selection, or payment authorization. | Each candidate is checked against that merchant's catalog, inventory, and economic policy before deterministic offer construction. |
+| Certificate explanation | Implemented and tested. CLEAR's certificate-explanation task was exercised through an externally supplied OpenAI-compatible provider after independent certificate verification. The returned citation references passed CLEAR's validation checks. AI did not verify the certificate; the run did not provide natural-language entailment proof or formal proof, and it did not change authority. | Explanation is advisory and is only produced for independently verified certificate evidence. |
 | OpenAI-compatible adapter | Implemented as synchronous Chat Completions over HTTPS with externally supplied provider name, base URL, key, and model identifier. | It is a transport adapter, not an economic decision-maker. |
 | Development live profile | Implemented and tested with fakes. Real cross-model profiling was attempted, but the runs aborted on provider unavailability before a comparison completed; no result or ranking is claimed. | Fixed buyer cases, deterministic merchant fixtures, a four-call-per-model budget, and sanitized reporting. |
 | V2 market and merchant authentication | Implemented and tested. | Canonical commitments and Ed25519 signatures bind merchant offers to trusted identities and frozen sources. |
 | V2 production allocation | Implemented and tested with deterministic OR-Tools CP-SAT. | Pure authoritative mechanism code decides allocation and payment fields from admitted offers. |
 | V2 certificate and independent verifier | Implemented and tested. | The verifier replays evidence and recomputes allocation with an independent reference oracle. |
 | Money Governor and SQLite financial ledger | Implemented and tested. | A verified certificate plus explicit financial authorization is required to reserve an execution and issue an immutable plan. |
-| Razorpay Test Mode boundary | Order, authenticated webhook, Route mapping, transfer, replay, reconciliation, recovery, and orchestration code is implemented and tested with controlled transports. One reviewed historical external Razorpay Test Mode order-provider exercise succeeded: order creation persisted a provider reference, and a second identical call resolved the existing provider order through provider-backed retrieval. Live payment capture, transfer, settlement, and real-money paths remain unexercised. | Only a governor-approved plan may drive provider operations; authenticated observations return to deterministic state replay. |
-| AgentMarketBench replacement final holdout | Stored 10,000-scenario evidence is committed and integrity-tested. | It is evaluation evidence for the defined distribution, not production telemetry or universal model/mechanism proof. |
+| Razorpay Test Mode boundary | Order, authenticated webhook, Route mapping, transfer, replay, reconciliation, recovery, and orchestration code is implemented and tested with controlled transports. External provider use is classified **HISTORICAL LIVE EVIDENCE ONLY** and is bounded below. | Only a governor-approved plan may drive provider operations; authenticated observations return to deterministic state replay. |
+| AgentMarketBench frozen evaluation report | The committed report covers 10,000 frozen scenarios and is integrity-tested. | It is evaluation evidence for the defined distribution, not production telemetry or universal model/mechanism proof. |
 
 “OpenAI-compatible” describes the wire protocol. The one historical live buyer-intent exercise was
 through an externally supplied compatible provider; this repository does not identify it as an
 official OpenAI endpoint and publishes no endpoint, credential, or reseller information.
-
-## Why this architecture is different
-
-Many agent-commerce demos let an LLM negotiate, choose, and call a payment API in one opaque
-loop. CLEAR splits those responsibilities:
-
-- AI proposes typed candidates at fuzzy-language boundaries.
-- Deterministic code validates every candidate against frozen, merchant-specific sources.
-- Sellers authenticate their offers before allocation.
-- The production allocator emits evidence rather than only an answer.
-- A structurally independent verifier recomputes the relevant semantics.
-- The Money Governor converts verified evidence and explicit authorizations into the only approved
-  provider-side plan.
-- Webhook inputs are authenticated; provider observations are validated and recorded before
-  deterministic replay, rather than trusted merely because an API call returned.
-
-This creates an auditable chain from intent to economic decision to payment authorization without
-pretending that signatures prove physical inventory or that a certificate proves fulfillment.
 
 ## V2 market mechanism
 
@@ -131,16 +186,10 @@ revalidates the relevant inputs, replays admission, invokes a structurally indep
 and compares the frozen result semantics. The reference oracle does not import the production
 CP-SAT allocator.
 
-A valid certificate proves internal consistency under the implemented protocol and supplied trust
-roots. It does not prove:
-
-- that catalog or inventory claims are physically true (a signature establishes attribution, not
-  real-world truth);
-- that awarded goods were shipped or fulfilled;
-- that a supplied transcript includes every real timely offer without an external trusted receipt
-  system;
-- formal verification, a zero-knowledge proof, or a blockchain record; or
-- legal validity or settlement finality.
+A valid certificate shows that the decision is internally consistent with the protocol and supplied
+trust roots. It cannot show that a merchant's catalog or inventory claim is physically true, that
+every timely offer appears in the transcript, or that goods were shipped or settled. The complete
+scope boundary is listed below.
 
 ## Financial authorization and Razorpay boundary
 
@@ -159,43 +208,48 @@ The Razorpay Test Mode integration includes:
 - deterministic payment-state replay; and
 - order recovery plus normal and graceful orchestration paths.
 
-These paths have automated tests with controlled transports. Separately, one reviewed historical
-external Razorpay Test Mode order-provider exercise succeeded: order creation persisted a provider
-reference, and a second identical call resolved the existing order through provider-backed retrieval.
-This evidence is limited to the order path and is not repository-level cryptographic proof of the
-historical run. It does not demonstrate payment capture, customer payment, Route transfer creation,
-settlement, refunds, reversals, disputes, physical fulfillment, or real-money movement. Transfer
-creation is not settlement. Refunds, reversals, settlement processing, and physical fulfillment are
-not implemented. Ledger reservations, fingerprints, provider references, and reconciliation reduce
-duplicate effects, but CLEAR does not claim exactly-once delivery across an external network.
+These paths have automated tests with controlled transports. Separately, and classified
+**HISTORICAL LIVE EVIDENCE ONLY**, CLEAR’s Governor-gated Razorpay order path was exercised against
+real Razorpay Test Mode: order creation succeeded and a second identical call resolved the existing
+provider order through provider-backed retrieval.
 
-## AgentMarketBench: what the stored evidence says
+That earlier run showed Test Mode order creation and retrieval, nothing more. It did not show a
+customer payment, payment capture, webhook delivery, transfer creation, settlement, fulfillment,
+real money, refunds or reversals, exactly-once delivery, or full-system execution.
 
-The committed replacement final holdout contains 10,000 deterministic scenarios. It was not
-regenerated for this documentation update. On that exact corpus:
+## AgentMarketBench: what the frozen report says
+
+The frozen report is `benchmarks/frozen_evaluation_report_v1.json` (SHA-256
+`d63d4217486daf9ca1cc4840bbcd091b5589507cfa376a232eb61fc08ed7e2fe`) and covers 10,000 frozen
+scenarios. On that exact corpus:
 
 - CLEAR has higher welfare and completion than `RANDOM_QUALIFYING_SELLER`,
   `CHEAPEST_QUALIFYING`, `STATIC_WEIGHTED_SCORE`, `BILATERAL_NEGOTIATION`, and
   `SEQUENTIAL_NEGOTIATION`; the corresponding descriptive paired 95% intervals exclude zero.
-- CLEAR and `FIRST_PRICE_REVERSE_AUCTION` have near-identical aggregates. The
-  first-price-minus-CLEAR intervals include zero for welfare, regret, and allocation efficiency,
-  so the evidence does not establish that CLEAR beats or is equivalent to first price.
-- The full-information oracle is a latent upper bound. CLEAR is materially below it, so the result
-  is not a near-optimality claim.
+- `FIRST_PRICE_REVERSE_AUCTION` is near-identical in aggregate. Its paired intervals against CLEAR
+  include zero for welfare, regret, and allocation efficiency. The report does not show that CLEAR
+  beat first price, and it does not prove statistical or formal equivalence.
+- The full-information oracle is a latent, non-deployable upper bound. CLEAR is materially below
+  it, so the result is not a near-optimality claim.
 - CLEAR and `FIRST_PRICE_REVERSE_AUCTION` both record 47 successful manipulation cases out of
   1,310 applicable observations and a mean hard-constraint-violation rate of 1/125 (`0.008`).
   These are measured limitations, not security guarantees.
 
-On this frozen benchmark, CLEAR reaches first-price-auction-level aggregate economic outcomes
-while its broader runtime architecture adds authenticated offers, deterministic multiwinner
-allocation, replay-verifiable certificates, and the Money Governor boundary. That is an
-architecture comparison, not a claim of economic dominance or statistical equivalence.
+CLEAR reaches first-price-auction-level aggregate economic outcomes on this frozen benchmark while
+its broader architecture adds authenticated offers, deterministic multiwinner allocation,
+replay-verifiable allocation certificates, and the Money Governor boundary.
 
-Latency numbers are environment-sensitive. The benchmark covers its declared market/evaluation
-path; it is not evidence that AI, certificate explanation, payments, Razorpay, recovery, or
-physical fulfillment ran end to end. See the
+The benchmark covers its declared market path only. It did not run AI, certificate explanation,
+payments, Razorpay, recovery, or physical fulfillment end to end, and its latency numbers depend on
+the environment. See the
 [replacement final results](docs/AGENTMARKETBENCH_REPLACEMENT_FINAL_RESULTS_V1.md) for exact metrics,
 intervals, provenance, and limitations.
+
+Verify the committed report bytes without regenerating any benchmark data:
+
+```sh
+shasum -a 256 benchmarks/frozen_evaluation_report_v1.json
+```
 
 ## Quick start
 
@@ -211,10 +265,13 @@ python3.12 -m venv .venv
 Run the normal verification suite:
 
 ```sh
-.venv/bin/python -m ruff check .
-.venv/bin/python -m ruff format --check .
+.venv/bin/python -m ruff check . \
+  --exclude benchmarks/agentmarketbench_v1/final_holdout_v1
+.venv/bin/python -m ruff format --check . \
+  --exclude benchmarks/agentmarketbench_v1/final_holdout_v1
 .venv/bin/python -m mypy src
-.venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q \
+  --ignore=benchmarks/agentmarketbench_v1/final_holdout_v1
 ```
 
 ## Useful verification commands
@@ -273,20 +330,24 @@ tiny fixed corpus or end-to-end timings as a universal model ranking.
 - `tests`: unit, property, differential, adversarial, integration-boundary, and evidence-integrity
   tests.
 
-## Scope and non-goals
+## Limits
 
-CLEAR currently does not provide:
-
-- an N-buyer exchange, continuous market, or general combinatorial auction;
-- proof that participant-signed claims are true in the physical world;
-- transcript completeness without an external trusted receipt/observation system;
-- fulfillment, shipping, disputes, refunds, reversals, or settlement processing;
-- live payment-capture, transfer, settlement, refund/reversal, or real-money evidence; demonstrated
-  external Razorpay evidence is limited to the Test Mode order path;
-- exactly-once external delivery;
-- collusion or Sybil resistance;
-- formal verification, zero-knowledge proofs, or blockchain consensus; or
-- a universal AI model or market-mechanism ranking.
+- CLEAR is a one-buyer, many-seller market. It is not an N-buyer exchange, continuous market, or
+  general combinatorial auction.
+- A signature shows who made a catalog or inventory claim. It does not make that claim physically
+  true.
+- Transcript completeness needs an external trusted receipt or observation system. CLEAR does not
+  guarantee that every real, timely offer appears in the supplied transcript.
+- Physical fulfillment, shipping, and disputes are outside the implemented system. Refund,
+  reversal, and settlement processing are not implemented.
+- There is no live evidence of payment capture, transfers, settlement, refunds, reversals, or real
+  money. The historical Razorpay evidence covers only the Test Mode order path, and transfer
+  creation would not by itself prove settlement.
+- Ledger reservations, fingerprints, provider references, and reconciliation reduce duplicate
+  effects. CLEAR does not claim exactly-once delivery across an external network.
+- The mechanism does not claim collusion or Sybil resistance.
+- The certificates are not formal verification, zero-knowledge proofs, or blockchain consensus.
+- The benchmark is not a universal ranking of AI models or market mechanisms.
 
 ## Documentation and evidence
 
