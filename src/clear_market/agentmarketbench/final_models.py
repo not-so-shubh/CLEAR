@@ -548,3 +548,268 @@ __all__ = (  # noqa: RUF022
     "AgentMarketBenchFinalRunMetadataV1",
     "AgentMarketBenchFinalManifestV1",
 )
+
+
+AGENT_MARKET_BENCH_REPLACEMENT_FINAL_EVIDENCE_V1_VERSION: Final[str] = (
+    "agent-market-bench-replacement-final-evidence-v1"
+)
+AGENT_MARKET_BENCH_REPLACEMENT_FINAL_SUMMARY_V1_VERSION: Final[str] = (
+    "agent-market-bench-replacement-final-summary-v1"
+)
+AGENT_MARKET_BENCH_REPLACEMENT_FINAL_MANIFEST_V1_VERSION: Final[str] = (
+    "agent-market-bench-replacement-final-manifest-v1"
+)
+AGENT_MARKET_BENCH_REPLACEMENT_FINAL_RUN_METADATA_V1_VERSION: Final[str] = (
+    "agent-market-bench-replacement-final-run-metadata-v1"
+)
+
+
+def _validate_replacement_final_selection_v1(anchor_commit: str, selection_sha256: str) -> None:
+    from clear_market.agentmarketbench.seeds import (
+        AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SELECTION_ANCHOR_COMMIT_V1,
+        AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SELECTION_SHA256_V1,
+    )
+
+    if anchor_commit != AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SELECTION_ANCHOR_COMMIT_V1:
+        raise ValueError("replacement selection anchor must equal the frozen R1 commit")
+    if selection_sha256 != AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SELECTION_SHA256_V1:
+        raise ValueError("replacement selection SHA-256 must equal the frozen selection digest")
+
+
+class AgentMarketBenchReplacementFinalSummaryV1(BaseModel):
+    """Neutral replacement aggregates bound to the repaired semantics and selection."""
+
+    model_config = _CONFIG
+
+    schema_version: Literal["1"] = "1"
+    agent_market_bench_replacement_final_summary_version: Literal[
+        "agent-market-bench-replacement-final-summary-v1"
+    ] = "agent-market-bench-replacement-final-summary-v1"
+    evaluated_source_commit: _GitSha
+    metric_semantics_version: Literal["agent-market-bench-metric-semantics-v1.1"] = (
+        "agent-market-bench-metric-semantics-v1.1"
+    )
+    selection_version: Literal["agent-market-bench-replacement-holdout-selection-v1"] = (
+        "agent-market-bench-replacement-holdout-selection-v1"
+    )
+    selection_anchor_commit: _GitSha
+    selection_sha256: _Sha256Hex
+    case_count: Annotated[int, Field(strict=True, ge=1)]
+    seed_sequence_sha256: _Sha256Hex
+    standard_case_count: Annotated[int, Field(strict=True, ge=0)]
+    method_status_counts: Annotated[
+        tuple[_FreshMethodStatusCount, ...], BeforeValidator(_require_tuple)
+    ]
+    scenario_counts: Annotated[tuple[_FreshScenarioCount, ...], BeforeValidator(_require_tuple)]
+    scenario_assessment_counts: Annotated[
+        tuple[_FreshScenarioAssessmentCount, ...], BeforeValidator(_require_tuple)
+    ]
+    run_summary: _FreshRunSummary
+
+    @model_validator(mode="after")
+    def _validate_selection(self) -> "AgentMarketBenchReplacementFinalSummaryV1":
+        _validate_replacement_final_selection_v1(
+            self.selection_anchor_commit, self.selection_sha256
+        )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_counts(self) -> "AgentMarketBenchReplacementFinalSummaryV1":
+        expected_statuses = tuple(
+            (method, status)
+            for method in AgentMarketBenchBaselineV1
+            for status in AgentMarketBenchMethodStatusV1
+        )
+        actual_statuses = tuple((item.method, item.status) for item in self.method_status_counts)
+        if actual_statuses != expected_statuses:
+            raise ValueError("method status counts must contain exact 9x3 enum-order coverage")
+        for method in AgentMarketBenchBaselineV1:
+            if sum(item.count for item in self.method_status_counts if item.method is method) != (
+                self.case_count
+            ):
+                raise ValueError("method status counts must sum to case_count for every method")
+        expected_scenarios = tuple(
+            sorted(AgentMarketBenchAdversarialScenarioV1, key=lambda scenario: scenario.value)
+        )
+        if tuple(item.scenario for item in self.scenario_counts) != expected_scenarios:
+            raise ValueError("scenario counts must contain every scenario in normalized order")
+        if self.standard_case_count + sum(item.count for item in self.scenario_counts) != (
+            self.case_count
+        ):
+            raise ValueError("standard and scenario counts must sum to case_count")
+        assessment_keys = tuple(
+            (item.scenario.value, item.classification.value, item.evidence_basis.value)
+            for item in self.scenario_assessment_counts
+        )
+        if assessment_keys != tuple(sorted(set(assessment_keys))):
+            raise ValueError("scenario assessment counts must be unique and normalized")
+        if any(item.count <= 0 for item in self.scenario_assessment_counts):
+            raise ValueError("scenario assessment counts must include only observed combinations")
+        if self.run_summary.case_count != self.case_count:
+            raise ValueError("run summary case_count must equal final case_count")
+        return self
+
+
+class AgentMarketBenchReplacementFinalRunMetadataV1(BaseModel):
+    """Private-host-free environment metadata for the frozen replacement protocol."""
+
+    model_config = _CONFIG
+
+    schema_version: Literal["1"] = "1"
+    agent_market_bench_replacement_final_run_metadata_version: Literal[
+        "agent-market-bench-replacement-final-run-metadata-v1"
+    ] = "agent-market-bench-replacement-final-run-metadata-v1"
+    evaluated_source_commit: _GitSha
+    metric_semantics_version: Literal["agent-market-bench-metric-semantics-v1.1"] = (
+        "agent-market-bench-metric-semantics-v1.1"
+    )
+    selection_version: Literal["agent-market-bench-replacement-holdout-selection-v1"] = (
+        "agent-market-bench-replacement-holdout-selection-v1"
+    )
+    selection_anchor_commit: _GitSha
+    selection_sha256: _Sha256Hex
+    started_at_utc: _UtcTimestamp
+    completed_at_utc: _UtcTimestamp
+    python_version: str
+    platform_system: str
+    platform_machine: str
+    pydantic_version: str
+    ortools_version: str
+    cryptography_version: str
+    clock_name: Literal["time.perf_counter_ns"] = "time.perf_counter_ns"
+
+    @model_validator(mode="after")
+    def _validate_selection(self) -> "AgentMarketBenchReplacementFinalRunMetadataV1":
+        _validate_replacement_final_selection_v1(
+            self.selection_anchor_commit, self.selection_sha256
+        )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_timestamps_and_text(self) -> "AgentMarketBenchReplacementFinalRunMetadataV1":
+        if self.completed_at_utc < self.started_at_utc:
+            raise ValueError("completion timestamp must not precede start timestamp")
+        for field_name in (
+            "python_version",
+            "platform_system",
+            "platform_machine",
+            "pydantic_version",
+            "ortools_version",
+            "cryptography_version",
+        ):
+            value = getattr(self, field_name)
+            if type(value) is not str or not value or "\x00" in value or "\n" in value:
+                raise ValueError(f"{field_name} must be a non-empty single-line string")
+        return self
+
+
+class AgentMarketBenchReplacementFinalManifestV1(BaseModel):
+    """Exactly one completed frozen replacement holdout's non-manifest inventory."""
+
+    model_config = _CONFIG
+
+    schema_version: Literal["1"] = "1"
+    agent_market_bench_replacement_final_manifest_version: Literal[
+        "agent-market-bench-replacement-final-manifest-v1"
+    ] = "agent-market-bench-replacement-final-manifest-v1"
+    evidence_version: Literal["agent-market-bench-replacement-final-evidence-v1"] = (
+        "agent-market-bench-replacement-final-evidence-v1"
+    )
+    evaluated_source_commit: _GitSha
+    generator_version: Literal["agent-market-bench-generator-v1"] = (
+        "agent-market-bench-generator-v1"
+    )
+    runner_version: Literal["agent-market-bench-runner-v1"] = "agent-market-bench-runner-v1"
+    metrics_version: Literal["agent-market-bench-metrics-v1"] = "agent-market-bench-metrics-v1"
+    metric_semantics_version: Literal["agent-market-bench-metric-semantics-v1.1"] = (
+        "agent-market-bench-metric-semantics-v1.1"
+    )
+    statistics_version: Literal["agent-market-bench-statistics-v1"] = (
+        "agent-market-bench-statistics-v1"
+    )
+    semantic_record_version: Literal["agent-market-bench-final-semantic-record-v1"] = (
+        "agent-market-bench-final-semantic-record-v1"
+    )
+    timing_record_version: Literal["agent-market-bench-final-timing-record-v1"] = (
+        "agent-market-bench-final-timing-record-v1"
+    )
+    selection_version: Literal["agent-market-bench-replacement-holdout-selection-v1"] = (
+        "agent-market-bench-replacement-holdout-selection-v1"
+    )
+    selection_anchor_commit: _GitSha
+    selection_sha256: _Sha256Hex
+    case_count: Annotated[int, Field(strict=True, ge=10_000, le=10_000)]
+    first_seed: Annotated[int, Field(strict=True, ge=0, le=MAX_AGENT_MARKET_BENCH_SEED)]
+    last_seed: Annotated[int, Field(strict=True, ge=0, le=MAX_AGENT_MARKET_BENCH_SEED)]
+    seed_sequence_sha256: _Sha256Hex
+    shard_size: Annotated[int, Field(strict=True, ge=500, le=500)] = 500
+    semantic_shard_count: Annotated[int, Field(strict=True, ge=20, le=20)] = 20
+    timing_shard_count: Annotated[int, Field(strict=True, ge=20, le=20)] = 20
+    semantic_root_sha256: _Sha256Hex
+    timing_root_sha256: _Sha256Hex
+    evidence_root_sha256: _Sha256Hex
+    files: Annotated[tuple[_FreshEvidenceFile, ...], BeforeValidator(_require_tuple)]
+
+    @model_validator(mode="after")
+    def _validate_manifest(self) -> "AgentMarketBenchReplacementFinalManifestV1":
+        from clear_market.agentmarketbench.seeds import (
+            AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SEED_SEQUENCE_SHA256_V1,
+            AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SEEDS_V1,
+        )
+
+        _validate_replacement_final_selection_v1(
+            self.selection_anchor_commit, self.selection_sha256
+        )
+        seeds = AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SEEDS_V1
+        if self.first_seed != seeds[0] or self.last_seed != seeds[-1]:
+            raise ValueError("replacement manifest must bind the exact frozen first and last seed")
+        if self.seed_sequence_sha256 != (
+            AGENT_MARKET_BENCH_REPLACEMENT_HOLDOUT_SEED_SEQUENCE_SHA256_V1
+        ):
+            raise ValueError("replacement manifest must bind the frozen seed-sequence SHA-256")
+        expected_files = {
+            "summary.json": AgentMarketBenchFinalEvidenceFileKindV1.SUMMARY,
+            "report.md": AgentMarketBenchFinalEvidenceFileKindV1.REPORT,
+            "run_metadata.json": AgentMarketBenchFinalEvidenceFileKindV1.RUN_METADATA,
+        }
+        shard_kinds = (
+            ("semantic", AgentMarketBenchFinalEvidenceFileKindV1.SEMANTIC_SHARD),
+            ("timing", AgentMarketBenchFinalEvidenceFileKindV1.TIMING_SHARD),
+        )
+        for directory, kind in shard_kinds:
+            for index in range(20):
+                expected_files[f"{directory}/part-{index:05d}.jsonl.gz"] = kind
+        paths = tuple(item.relative_path for item in self.files)
+        if paths != tuple(sorted(expected_files)):
+            raise ValueError(
+                "replacement manifest requires exactly 43 frozen paths in sorted order"
+            )
+        for item in self.files:
+            if item.kind is not expected_files[item.relative_path]:
+                raise ValueError(
+                    "replacement manifest file kind must match its frozen relative path"
+                )
+        files_by_path = {item.relative_path: item for item in self.files}
+        for directory, _ in shard_kinds:
+            for index in range(20):
+                item = files_by_path[f"{directory}/part-{index:05d}.jsonl.gz"]
+                if item.line_count != 500:
+                    raise ValueError("completed replacement shard line_count must equal 500")
+                start = index * 500
+                if item.first_seed != seeds[start] or item.last_seed != seeds[start + 499]:
+                    raise ValueError(
+                        "replacement shard must bind its exact consecutive seed bounds"
+                    )
+        return self
+
+
+# Preserve the historical export tuple above without changing its inferred fixed-length type.
+__all__ += (  # type: ignore[assignment]
+    "AGENT_MARKET_BENCH_REPLACEMENT_FINAL_EVIDENCE_V1_VERSION",
+    "AGENT_MARKET_BENCH_REPLACEMENT_FINAL_MANIFEST_V1_VERSION",
+    "AGENT_MARKET_BENCH_REPLACEMENT_FINAL_RUN_METADATA_V1_VERSION",
+    "AGENT_MARKET_BENCH_REPLACEMENT_FINAL_SUMMARY_V1_VERSION",
+    "AgentMarketBenchReplacementFinalManifestV1",
+    "AgentMarketBenchReplacementFinalRunMetadataV1",
+    "AgentMarketBenchReplacementFinalSummaryV1",
+)

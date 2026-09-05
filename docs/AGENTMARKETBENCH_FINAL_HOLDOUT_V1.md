@@ -338,4 +338,13 @@ on its invariant failure and its partial directory is preserved. Slice
 24E-R1 is the scoped metric repair and permanent retirement; it does not
 authorize a second execution of the original partition. A reviewed,
 previously unopened replacement and a protocol explicitly binding the
-semantic revision remain future work in Slice 24E-R2.
+semantic revision are required before further final evaluation.
+
+[Slice 24E-R2 replacement protocol](AGENTMARKETBENCH_REPLACEMENT_FINAL_HOLDOUT_V1.md)
+freezes a distinct replacement protocol and output path,
+`benchmarks/agentmarketbench_v1/replacement_final_holdout_v1/`. Its seeds are
+selected deterministically from the remotely verified R1 repair commit
+`a4fc224ba9b10b518753d05237ab7d56d737943b`. R2 does not generate, execute, or
+inspect any replacement case; execution remains prohibited until the R2
+commit is externally reviewed, pushed, and remotely verified. The historical
+original final partition and runner remain permanently retired.
