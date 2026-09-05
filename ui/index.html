@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="A deterministic visual proof that CLEAR authorizes no money action without a valid certificate."
+    >
+    <title>CLEAR — Authority Demo</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="#top" aria-label="CLEAR authority demo home">CLEAR</a>
+      <p>Proof-carrying market infrastructure</p>
+      <span>Track 01 / Agentic commerce</span>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="invariant-title">
+        <div class="hero-index" aria-hidden="true">01—06</div>
+        <div class="hero-copy">
+          <p class="eyebrow">Executable authority, not AI assertion</p>
+          <h1 id="invariant-title">NO VALID CERTIFICATE<br>= NO MONEY ACTION</h1>
+          <p class="hero-deck">
+            AI interprets commercial intent. Deterministic systems decide which
+            agreement wins—and whether any economic action may proceed.
+          </p>
+        </div>
+        <div class="boundary-note">
+          <span>Authority boundary</span>
+          <p>Raw AI output cannot authorize money. This interface cannot construct authority.</p>
+        </div>
+      </section>
+
+      <section class="runway" aria-labelledby="runway-title">
+        <div>
+          <p class="eyebrow">Deterministic local execution</p>
+          <h2 id="runway-title">Follow the proof to the provider boundary.</h2>
+        </div>
+        <button id="run-demo" class="primary-action" type="button" aria-controls="valid-result">
+          <span>Run the authority demo</span>
+          <span aria-hidden="true">↘</span>
+        </button>
+        <p id="run-status" class="run-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="demo-failure" class="failure-panel" aria-live="assertive" hidden>
+        <p class="eyebrow">Demo unavailable</p>
+        <h2>The authority path could not be completed.</h2>
+        <p>No partial or previous result is being presented. Run the deterministic path again.</p>
+      </section>
+
+      <section id="valid-result" class="result" aria-labelledby="valid-title" hidden>
+        <div class="section-heading">
+          <p class="eyebrow">Valid certificate path</p>
+          <h2 id="valid-title">One run. Six authority transitions.</h2>
+          <p id="demo-version" class="version-label"></p>
+        </div>
+        <ol id="valid-path" class="proof-sequence"></ol>
+        <div class="tamper-invitation">
+          <div>
+            <p class="eyebrow">Counterfactual proof</p>
+            <h2>What if one certified claim changes?</h2>
+          </div>
+          <button
+            id="reveal-tamper"
+            class="secondary-action"
+            type="button"
+            aria-controls="tamper-result"
+            aria-expanded="false"
+            disabled
+          >
+            Reveal tamper path
+          </button>
+        </div>
+      </section>
+
+      <section id="tamper-result" class="tamper-result" aria-labelledby="tamper-title" hidden>
+        <div class="section-heading section-heading--dark">
+          <p class="eyebrow">Fail-closed path</p>
+          <h2 id="tamper-title">The provider boundary remains untouched.</h2>
+        </div>
+        <ol id="tamper-path" class="tamper-sequence"></ol>
+        <p id="tamper-outcome" class="tamper-outcome"></p>
+      </section>
+
+      <section id="evidence-section" class="evidence-section" aria-labelledby="evidence-title" hidden>
+        <div class="section-heading">
+          <p class="eyebrow">Provenance vocabulary</p>
+          <h2 id="evidence-title">Every claim keeps its evidence class.</h2>
+        </div>
+        <div id="evidence-labels" class="evidence-labels"></div>
+      </section>
+
+      <section id="historical-section" class="historical-section" aria-labelledby="historical-title" hidden>
+        <div>
+          <p id="historical-label" class="eyebrow"></p>
+          <h2 id="historical-title">Razorpay Test Mode evidence, kept separate.</h2>
+        </div>
+        <div class="historical-copy">
+          <p id="historical-claim"></p>
+          <p id="current-run-notice" class="current-run-notice"></p>
+        </div>
+      </section>
+
+      <section id="limitations-section" class="limitations-section" aria-labelledby="limitations-title" hidden>
+        <div class="section-heading">
+          <p class="eyebrow">Claim boundary</p>
+          <h2 id="limitations-title">Not demonstrated by this run.</h2>
+        </div>
+        <ul id="limitations" class="limitations-list"></ul>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>CLEAR / Proof before payment</p>
+      <p>Zero-secret deterministic authority demo</p>
+    </footer>
+  </body>
+</html>
