@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,6 +18,17 @@ from .ai_evidence import (
     merchant_unavailable_presentation,
 )
 from .presentation import PresentationError, build_authority_demo_presentation
+from .product import (
+    CloseMarketRequest,
+    CreateMarketRequest,
+    CreateMerchantRequest,
+    ProductService,
+    ProductServiceError,
+    SubmitOfferRequest,
+    parse_product_json,
+)
+from .product.models import ProductRequestError
+from .product.service import ProductErrorCode
 from .razorpay_evidence import (
     build_razorpay_test_order_evidence,
     unavailable_presentation,
@@ -25,6 +37,22 @@ from .razorpay_evidence import (
 UI_ROOT = Path(__file__).resolve().parent
 _LIVE_EVIDENCE_LOCK = Lock()
 _LIVE_AI_EVIDENCE_LOCK = Lock()
+_PRODUCT_MARKET_PATH = re.compile(r"/api/product-v1/markets/([^/]+)")
+_PRODUCT_OFFER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/offers")
+_PRODUCT_CLOSE_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/close")
+
+_PRODUCT_ERROR_STATUSES = {
+    ProductErrorCode.INVALID_REQUEST: HTTPStatus.BAD_REQUEST,
+    ProductErrorCode.NOT_FOUND: HTTPStatus.NOT_FOUND,
+    ProductErrorCode.MERCHANT_NOT_ELIGIBLE: HTTPStatus.FORBIDDEN,
+    ProductErrorCode.MARKET_NOT_OPEN: HTTPStatus.CONFLICT,
+    ProductErrorCode.OFFER_DEADLINE_PASSED: HTTPStatus.CONFLICT,
+    ProductErrorCode.DUPLICATE_OFFER: HTTPStatus.CONFLICT,
+    ProductErrorCode.MERCHANT_OFFER_REJECTED: HTTPStatus.UNPROCESSABLE_ENTITY,
+    ProductErrorCode.OFFER_AUTHENTICATION_FAILED: HTTPStatus.INTERNAL_SERVER_ERROR,
+    ProductErrorCode.CERTIFICATE_NOT_VERIFIED: HTTPStatus.INTERNAL_SERVER_ERROR,
+    ProductErrorCode.PERSISTED_DATA_INVALID: HTTPStatus.INTERNAL_SERVER_ERROR,
+}
 
 
 def _live_result_status(payload: dict[str, object]) -> HTTPStatus:
@@ -49,7 +77,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         requested = urlparse(self.path).path
-        if requested not in {
+        product_request = requested.startswith("/api/product-v1/")
+        if not product_request and requested not in {
             "/api/authority-demo",
             "/api/ai-certificate-explanation-evidence",
             "/api/ai-merchant-proposal-evidence",
@@ -57,12 +86,21 @@ class _Handler(BaseHTTPRequestHandler):
         }:
             self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             return
-        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json({"error": "invalid content length"}, HTTPStatus.BAD_REQUEST)
+            return
+        if length < 0:
+            self._send_json({"error": "invalid content length"}, HTTPStatus.BAD_REQUEST)
+            return
         if length > 1024 * 1024:
             self._send_json({"error": "request too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             return
-        if length:
-            self.rfile.read(length)
+        body = self.rfile.read(length) if length else b""
+        if product_request:
+            self._handle_product_post(requested, body)
+            return
         ai_endpoints = {
             "/api/ai-merchant-proposal-evidence": (
                 build_ai_merchant_proposal_evidence,
@@ -136,8 +174,81 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_json(payload)
 
+    def _send_product_error(self, error: ProductServiceError) -> None:
+        self._send_json(
+            {"error": {"code": error.code.value, "message": "Product request failed closed."}},
+            _PRODUCT_ERROR_STATUSES[error.code],
+        )
+
+    def _handle_product_post(self, requested: str, body: bytes) -> None:
+        try:
+            service = ProductService()
+            if requested == "/api/product-v1/merchants":
+                payload = service.create_merchant(parse_product_json(body, CreateMerchantRequest))
+                self._send_json(payload, HTTPStatus.CREATED)
+                return
+            if requested == "/api/product-v1/markets":
+                payload = service.create_market(parse_product_json(body, CreateMarketRequest))
+                self._send_json(payload, HTTPStatus.CREATED)
+                return
+            offer_match = _PRODUCT_OFFER_PATH.fullmatch(requested)
+            if offer_match is not None:
+                payload = service.submit_offer(
+                    offer_match.group(1),
+                    parse_product_json(body, SubmitOfferRequest),
+                )
+                self._send_json(payload, HTTPStatus.CREATED)
+                return
+            close_match = _PRODUCT_CLOSE_PATH.fullmatch(requested)
+            if close_match is not None:
+                if body:
+                    parse_product_json(body, CloseMarketRequest)
+                self._send_json(service.close_market(close_match.group(1)))
+                return
+        except ProductRequestError:
+            self._send_product_error(ProductServiceError(ProductErrorCode.INVALID_REQUEST))
+            return
+        except ProductServiceError as error:
+            self._send_product_error(error)
+            return
+        except Exception:
+            self._send_json(
+                {
+                    "error": {
+                        "code": "PRODUCT_INTERNAL_FAILURE",
+                        "message": "Product request failed closed.",
+                    }
+                },
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+
     def do_GET(self) -> None:
         requested = urlparse(self.path).path
+        if requested.startswith("/api/product-v1/"):
+            market_match = _PRODUCT_MARKET_PATH.fullmatch(requested)
+            if market_match is None:
+                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                payload = ProductService().get_market(market_match.group(1))
+            except ProductServiceError as error:
+                self._send_product_error(error)
+                return
+            except Exception:
+                self._send_json(
+                    {
+                        "error": {
+                            "code": "PRODUCT_INTERNAL_FAILURE",
+                            "message": "Product request failed closed.",
+                        }
+                    },
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json(payload)
+            return
         relative = "index.html" if requested in ("/", "") else requested.removeprefix("/")
         candidate = (UI_ROOT / relative).resolve()
         if UI_ROOT not in candidate.parents and candidate != UI_ROOT:
