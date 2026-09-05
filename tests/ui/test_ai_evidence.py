@@ -555,23 +555,16 @@ def test_ui_preserves_exact_evidence_taxonomy() -> None:
     }
     labels = {
         value.strip()
-        for value in re.findall(r'<span class="evidence-label"[^>]*>([^<]+)</span>', source)
+        for value in re.findall(
+            r'<span class="[^"]*\bevidence-taxonomy\b[^"]*"[^>]*>([^<]+)</span>',
+            source,
+        )
     }
 
-    assert labels - {"AWAITING RUN"} == canonical - {"NOT DEMONSTRATED"}
-    assert labels <= canonical | {"AWAITING RUN"}
-    assert (
-        '<span>Merchant proposal AI</span><span class="evidence-label">'
-        "HISTORICAL LIVE EVIDENCE ONLY</span>"
-    ) in source
-    assert (
-        '<span>Certificate explanation AI</span><span class="evidence-label">'
-        "HISTORICAL LIVE EVIDENCE ONLY</span>"
-    ) in source
+    assert labels == canonical
     assert "CLAIMS VALIDATED" in source
     assert "CLAIMS DISPLAYED" in source
     assert "CURRENT RUN · EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER" in source
-    assert 'class="evidence-label">CURRENT RUN' not in source
 
 
 def test_reviewed_historical_ai_wording_is_bounded_and_not_official_openai() -> None:

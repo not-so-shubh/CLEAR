@@ -13,20 +13,14 @@
     <a class="skip-link" href="#buyer-workspace">Skip to workspace</a>
     <div class="reading-progress" aria-hidden="true"></div>
     <header class="site-header">
-      <a class="wordmark" href="#top" aria-label="CLEAR home"><span class="wordmark-mark" aria-hidden="true">//</span>clear<span class="wordmark-period">.</span></a>
+      <a class="wordmark" href="#buyer" aria-label="CLEAR home"><span class="wordmark-mark" aria-hidden="true">//</span>clear<span class="wordmark-period">.</span></a>
       <div class="app-switch" role="group" aria-label="Application view">
         <button type="button" data-view-target="buyer" aria-pressed="true">Buyer</button>
         <button type="button" data-view-target="merchant" aria-pressed="false">Merchant</button>
         <button type="button" data-view-target="clearing" aria-pressed="false">Clearing</button>
-        <button type="button" data-view-target="evidence" aria-pressed="false">Evidence</button>
       </div>
-      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">Menu <span aria-hidden="true">+</span></button>
-      <nav id="primary-nav" aria-label="Evidence navigation" data-evidence-nav>
-        <a href="#evidence">The demo <span aria-hidden="true">↗</span></a>
-        <a href="#supporting">Evidence</a>
-        <a href="#architecture">How it works</a>
-        <button class="nav-run" type="button" data-run-demo>Run demo <span aria-hidden="true">↗</span></button>
-      </nav>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" hidden>Menu <span aria-hidden="true">+</span></button>
+      <nav id="primary-nav" aria-label="Evidence navigation" data-evidence-nav hidden></nav>
     </header>
 
     <main class="buyer-shell" id="buyer-workspace" data-app-view="buyer">
@@ -103,7 +97,7 @@
             <div><span>QUANTITY</span><strong data-buyer-field="requested-quantity">—</strong></div>
             <div><span>MINIMUM ACCEPTABLE</span><strong data-buyer-field="minimum-quantity">—</strong></div>
             <div><span>MAXIMUM SUPPLIERS</span><strong data-buyer-field="max-suppliers">—</strong></div>
-            <div><span>BUDGET</span><strong data-buyer-field="budget">—</strong><small>PAISE</small></div>
+            <div><span>BUDGET</span><strong data-buyer-field="budget">—</strong></div>
           </div>
           <div class="buyer-rule-columns">
             <section><p class="micro-label">HARD CONSTRAINTS</p><div class="buyer-rule-list" data-buyer-field="hard-rules"></div></section>
@@ -131,6 +125,11 @@
         <p class="buyer-scope-note">No winner, allocation, certificate, Governor decision, Razorpay action, or payment is claimed here.</p>
       </section>
     </main>
+
+    <footer class="workspace-footer" data-app-view="buyer">
+      <span>BUYER → MERCHANT → CLEARING</span>
+      <a href="#evidence">Evidence dossier <span aria-hidden="true">↗</span></a>
+    </footer>
 
     <main class="merchant-shell" id="merchant-workspace" data-app-view="merchant" hidden>
       <section class="merchant-intro" aria-labelledby="merchant-title">
@@ -163,7 +162,7 @@
               <div><dt>PRODUCT</dt><dd data-merchant-field="product-name">—</dd></div>
               <div><dt>SKU</dt><dd data-merchant-field="merchant-sku">—</dd></div>
               <div><dt>INVENTORY</dt><dd data-merchant-field="inventory">—</dd></div>
-              <div><dt>MINIMUM UNIT PRICE</dt><dd><span data-merchant-field="minimum-price">—</span> PAISE</dd></div>
+              <div><dt>MINIMUM UNIT PRICE</dt><dd data-merchant-field="minimum-price">—</dd></div>
               <div><dt>MAX OFFER QUANTITY</dt><dd data-merchant-field="maximum-quantity">—</dd></div>
             </dl>
             <div class="merchant-attributes">
@@ -207,7 +206,7 @@
           <div><span>QUANTITY</span><strong data-merchant-market-field="requested-quantity">—</strong></div>
           <div><span>MINIMUM ACCEPTABLE</span><strong data-merchant-market-field="minimum-quantity">—</strong></div>
           <div><span>MAXIMUM SUPPLIERS</span><strong data-merchant-market-field="max-suppliers">—</strong></div>
-          <div><span>BUDGET</span><strong data-merchant-market-field="budget">—</strong><small>PAISE</small></div>
+          <div><span>BUDGET</span><strong data-merchant-market-field="budget">—</strong></div>
         </div>
         <div class="buyer-rule-columns">
           <section><p class="micro-label">HARD CONSTRAINTS</p><div class="buyer-rule-list" data-merchant-market-field="hard-rules"></div></section>
@@ -234,6 +233,11 @@
       </section>
     </main>
 
+    <footer class="workspace-footer" data-app-view="merchant" hidden>
+      <span>BUYER → MERCHANT → CLEARING</span>
+      <a href="#evidence">Evidence dossier <span aria-hidden="true">↗</span></a>
+    </footer>
+
     <main class="clearing-shell" id="clearing-workspace" data-app-view="clearing" hidden>
       <section class="clearing-intro" aria-labelledby="clearing-workspace-title">
         <div>
@@ -259,8 +263,25 @@
             <p class="muted">Loading persisted runtime markets…</p>
           </div>
           <p class="action-note" id="clearing-action-status" role="status" aria-live="polite">Loading server authority. No browser outcome is inferred.</p>
+        </div>
 
-          <section class="clearing-snapshot" id="clearing-snapshot" aria-live="polite" hidden>
+        <aside class="clearing-authority-map" aria-label="Clearing authority path">
+          <p class="micro-label">CLEARING PATH</p>
+          <ol>
+            <li><span>01</span><div><strong>Frozen buyer policy</strong><small>SERVER AUTHORITY</small></div></li>
+            <li><span>02</span><div><strong>Submitted offers</strong><small>SIGNED · AUTHENTICATED</small></div></li>
+            <li><span>03</span><div><strong>Explicit close</strong><small>EMPTY OBJECT BODY</small></div></li>
+            <li><span>04</span><div><strong>Deterministic allocation</strong><small>PRODUCTION LOGIC</small></div></li>
+            <li><span>05</span><div><strong>Allocation proof</strong><small>PROOF CARRIER</small></div></li>
+            <li><span>06</span><div><strong>Independent replay</strong><small>CONFIGURED TRUST ROOTS</small></div></li>
+            <li><span>07</span><div><strong>Controlled alteration</strong><small>DETERMINISTIC FIXTURE</small></div></li>
+            <li><span>08</span><div><strong>Execution authority</strong><small>PROVIDER-NEUTRAL PLAN</small></div></li>
+          </ol>
+          <p>AI can propose inputs. It cannot close a market or select its winners.</p>
+        </aside>
+      </section>
+
+      <section class="clearing-snapshot" id="clearing-snapshot" aria-live="polite" hidden>
             <div class="clearing-snapshot-head">
               <div><p class="micro-label">RUNTIME MARKET</p><h2 data-clearing-field="market-id">—</h2></div>
               <span class="clearing-market-state" data-clearing-field="market-state">—</span>
@@ -269,7 +290,7 @@
               <div><span>QUANTITY</span><strong data-clearing-field="requested-quantity">—</strong></div>
               <div><span>MINIMUM ACCEPTABLE</span><strong data-clearing-field="minimum-quantity">—</strong></div>
               <div><span>MAXIMUM SUPPLIERS</span><strong data-clearing-field="max-suppliers">—</strong></div>
-              <div><span>BUDGET</span><strong data-clearing-field="budget">—</strong><small>PAISE</small></div>
+              <div><span>BUDGET</span><strong data-clearing-field="budget">—</strong></div>
             </div>
             <div class="buyer-rule-columns clearing-rule-columns">
               <section><p class="micro-label">HARD CONSTRAINTS</p><div class="buyer-rule-list" data-clearing-field="hard-rules"></div></section>
@@ -306,7 +327,7 @@
                   <div><span>REQUESTED</span><strong data-clearing-result-field="requested-quantity">—</strong></div>
                   <div><span>FULFILLED</span><strong data-clearing-result-field="fulfilled-quantity">—</strong></div>
                   <div><span>WINNERS</span><strong data-clearing-result-field="winner-count">—</strong></div>
-                  <div><span>TOTAL</span><strong data-clearing-result-field="total">—</strong><small>PAISE</small></div>
+                  <div><span>TOTAL</span><strong data-clearing-result-field="total">—</strong></div>
                 </div>
                 <div class="clearing-winners">
                   <p class="micro-label">SERVER-RESOLVED WINNER IDENTITIES</p>
@@ -315,270 +336,352 @@
 
                 <div class="runtime-authority-sequence" id="runtime-authority-sequence" hidden>
                   <section class="runtime-authority-card proof-authority-card" aria-labelledby="runtime-proof-title">
-                    <div class="runtime-authority-heading">
-                      <span class="buyer-step">05 /</span>
-                      <div><p class="micro-label">PROOF CARRIER</p><h2 id="runtime-proof-title">AllocationCertificateV2</h2></div>
-                      <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
+                    <span class="buyer-step">05 /</span>
+                    <div class="runtime-authority-body">
+                      <div class="runtime-authority-title"><p class="micro-label">PROOF CARRIER</p><h2 id="runtime-proof-title">AllocationCertificateV2</h2></div>
+                      <dl class="runtime-authority-facts">
+                        <div><dt>PROOF ID</dt><dd data-authority-field="proof-id">—</dd></div>
+                        <div><dt>DIGEST</dt><dd data-authority-field="proof-digest">—</dd></div>
+                        <div><dt>BUYER POLICY COMMITMENT</dt><dd data-authority-field="policy-commitment">—</dd></div>
+                        <div><dt>OFFER EVIDENCE</dt><dd data-authority-field="evidence-count">—</dd></div>
+                      </dl>
+                      <p class="micro-label runtime-lines-label">CERTIFIED ALLOCATION LINES</p>
+                      <div class="runtime-authority-lines" id="runtime-proof-lines"></div>
                     </div>
-                    <dl class="runtime-authority-facts">
-                      <div><dt>PROOF ID</dt><dd data-authority-field="proof-id">—</dd></div>
-                      <div><dt>DIGEST</dt><dd data-authority-field="proof-digest">—</dd></div>
-                      <div><dt>BUYER POLICY COMMITMENT</dt><dd data-authority-field="policy-commitment">—</dd></div>
-                      <div><dt>OFFER EVIDENCE</dt><dd data-authority-field="evidence-count">—</dd></div>
-                    </dl>
-                    <p class="micro-label runtime-lines-label">CERTIFIED ALLOCATION LINES</p>
-                    <div class="runtime-authority-lines" id="runtime-proof-lines"></div>
+                    <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
                   </section>
 
                   <section class="runtime-authority-card replay-authority-card" aria-labelledby="runtime-replay-title">
-                    <div class="runtime-authority-heading">
-                      <span class="buyer-step">06 /</span>
-                      <div><p class="micro-label">INDEPENDENT REPLAY</p><h2 id="runtime-replay-title">Verified by independent replay</h2></div>
-                      <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
+                    <span class="buyer-step">06 /</span>
+                    <div class="runtime-authority-body">
+                      <div class="runtime-authority-title"><p class="micro-label">INDEPENDENT REPLAY</p><h2 id="runtime-replay-title">Verified by independent replay</h2></div>
+                      <strong class="runtime-replay-state" data-authority-field="replay-state">—</strong>
+                      <p class="runtime-boundary-copy">Verification demonstrates internal consistency under configured trust roots. It does not prove physical inventory truth, shipment, settlement, or transcript completeness.</p>
                     </div>
-                    <strong class="runtime-replay-state" data-authority-field="replay-state">—</strong>
-                    <p class="runtime-boundary-copy">Verification demonstrates internal consistency under configured trust roots. It does not prove physical inventory truth, shipment, settlement, or transcript completeness.</p>
+                    <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
                   </section>
 
                   <section class="runtime-authority-card tamper-authority-card" aria-labelledby="runtime-tamper-title">
-                    <div class="runtime-authority-heading">
-                      <span class="buyer-step">07 /</span>
-                      <div><p class="micro-label">CONTROL PATH</p><h2 id="runtime-tamper-title">Altered claim.<br />Broken chain.</h2></div>
-                      <span class="runtime-fixture-badge">DETERMINISTIC FIXTURE</span>
+                    <span class="buyer-step">07 /</span>
+                    <div class="runtime-authority-body">
+                      <div class="runtime-authority-title"><p class="micro-label">CONTROL PATH</p><h2 id="runtime-tamper-title">Altered claim.<br />Broken chain.</h2></div>
+                      <button class="button button-secondary" id="test-runtime-tamper" type="button"><span>Test a tampered copy</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                      <div class="runtime-tamper-result" id="runtime-tamper-result" role="status" aria-live="polite" hidden>
+                        <p><span>INDEPENDENT VERIFIER</span><br /><strong data-tamper-field="verifier-failure-code">—</strong></p>
+                        <p><span>MONEY GOVERNOR</span><br /><strong data-tamper-field="governor-failure-code">—</strong></p>
+                        <p data-tamper-field="control-copy">—</p>
+                        <p data-tamper-field="money-copy">—</p>
+                      </div>
                     </div>
-                    <button class="button button-secondary" id="test-runtime-tamper" type="button"><span>Test a tampered copy</span><span class="button-arrow" aria-hidden="true">↗</span></button>
-                    <div class="runtime-tamper-result" id="runtime-tamper-result" role="status" aria-live="polite" hidden>
-                      <p><span>INDEPENDENT VERIFIER</span><br /><strong data-tamper-field="verifier-failure-code">—</strong></p>
-                      <p><span>MONEY GOVERNOR</span><br /><strong data-tamper-field="governor-failure-code">—</strong></p>
-                      <p data-tamper-field="control-copy">—</p>
-                      <p data-tamper-field="money-copy">—</p>
-                    </div>
+                    <span class="runtime-fixture-badge">DETERMINISTIC FIXTURE</span>
                   </section>
 
                   <section class="runtime-authority-card execution-authority-card" aria-labelledby="runtime-execution-title">
-                    <div class="runtime-authority-heading">
-                      <span class="buyer-step">08 /</span>
-                      <div><p class="micro-label">MONEY AUTHORITY</p><h2 id="runtime-execution-title">Money Governor</h2></div>
-                      <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
-                    </div>
-                    <p class="runtime-invariant">NO VALID CERTIFICATE = NO MONEY ACTION</p>
-                    <strong class="runtime-execution-state" data-authority-field="execution-state">NO EXECUTION PLAN YET</strong>
-                    <button class="button button-primary" id="authorize-runtime-execution" type="button"><span>Authorize provider-neutral execution</span><span class="button-arrow" aria-hidden="true">↗</span></button>
-                    <p class="action-note" id="runtime-authority-status" role="status" aria-live="polite">No execution authorization has been requested.</p>
-                    <div class="runtime-execution-plan" id="runtime-execution-plan" hidden>
-                      <div class="runtime-execution-head">
-                        <div><p class="micro-label">EXECUTION PLAN</p><h3>Governor authorized</h3></div>
-                        <strong>NO RAZORPAY ACTION YET.</strong>
-                      </div>
-                      <dl class="runtime-authority-facts">
-                        <div><dt>PLAN VERSION</dt><dd data-execution-field="plan-version">—</dd></div>
-                        <div><dt>EXECUTION ID</dt><dd data-execution-field="execution-id">—</dd></div>
-                        <div><dt>PROOF DIGEST</dt><dd data-execution-field="proof-digest">—</dd></div>
-                        <div><dt>REQUEST FINGERPRINT</dt><dd data-execution-field="request-fingerprint">—</dd></div>
-                        <div><dt>IDEMPOTENCY KEY</dt><dd data-execution-field="idempotency-key">—</dd></div>
-                        <div><dt>ORDER AMOUNT</dt><dd><span data-execution-field="order-amount">—</span> PAISE</dd></div>
-                      </dl>
-                      <p class="micro-label runtime-lines-label">PROVIDER-NEUTRAL TRANSFER OBLIGATIONS</p>
-                      <div class="runtime-authority-lines" id="runtime-transfer-lines"></div>
-                      <section class="runtime-razorpay-action" aria-labelledby="runtime-razorpay-title">
+                    <span class="buyer-step">08 /</span>
+                    <div class="runtime-authority-body">
+                      <div class="runtime-authority-title"><p class="micro-label">MONEY AUTHORITY</p><h2 id="runtime-execution-title">Money Governor</h2></div>
+                      <p class="runtime-invariant">NO VALID CERTIFICATE = NO MONEY ACTION</p>
+                      <strong class="runtime-execution-state" data-authority-field="execution-state">NO EXECUTION PLAN YET</strong>
+                      <button class="button button-primary" id="authorize-runtime-execution" type="button"><span>Authorize provider-neutral execution</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                      <p class="action-note" id="runtime-authority-status" role="status" aria-live="polite">No execution authorization has been requested.</p>
+                      <div class="runtime-execution-plan" id="runtime-execution-plan" hidden>
                         <div class="runtime-execution-head">
-                          <div><p class="micro-label">EXPLICIT PROVIDER ACTION</p><h3 id="runtime-razorpay-title">Razorpay Test Mode order</h3></div>
-                          <strong data-razorpay-field="state">NOT DEMONSTRATED</strong>
+                          <div><p class="micro-label">EXECUTION PLAN</p><h3>Governor authorized</h3></div>
+                          <strong>NO RAZORPAY ACTION YET.</strong>
                         </div>
-                        <p class="runtime-boundary-copy">Razorpay Test Mode order creation and existing-order resolution only. This does not demonstrate payment capture, customer payment, webhook handling, transfer, settlement, or real-money movement.</p>
-                        <button class="button button-secondary" id="create-runtime-razorpay-order" type="button"><span>Create Razorpay Test Mode order</span><span class="button-arrow" aria-hidden="true">↗</span></button>
-                        <p class="action-note" id="runtime-razorpay-status" role="status" aria-live="polite">No Razorpay order action has been requested.</p>
-                        <div class="runtime-razorpay-result" id="runtime-razorpay-result" hidden>
-                          <p class="micro-label" data-razorpay-field="observation">—</p>
-                          <dl class="runtime-authority-facts">
-                            <div><dt>RESOLUTION</dt><dd data-razorpay-field="resolution">—</dd></div>
-                            <div><dt>PROVIDER ORDER ID</dt><dd data-razorpay-field="provider-order-id">—</dd></div>
-                            <div><dt>EXECUTION ID</dt><dd data-razorpay-field="execution-id">—</dd></div>
-                            <div><dt>ORDER AMOUNT</dt><dd><span data-razorpay-field="order-amount">—</span> PAISE · INR</dd></div>
-                            <div><dt>RECEIPT</dt><dd data-razorpay-field="receipt">—</dd></div>
-                          </dl>
-                        </div>
-                      </section>
+                        <dl class="runtime-authority-facts">
+                          <div><dt>PLAN VERSION</dt><dd data-execution-field="plan-version">—</dd></div>
+                          <div><dt>EXECUTION ID</dt><dd data-execution-field="execution-id">—</dd></div>
+                          <div><dt>PROOF DIGEST</dt><dd data-execution-field="proof-digest">—</dd></div>
+                          <div><dt>REQUEST FINGERPRINT</dt><dd data-execution-field="request-fingerprint">—</dd></div>
+                          <div><dt>IDEMPOTENCY KEY</dt><dd data-execution-field="idempotency-key">—</dd></div>
+                          <div><dt>ORDER AMOUNT</dt><dd data-execution-field="order-amount">—</dd></div>
+                        </dl>
+                        <p class="micro-label runtime-lines-label">PROVIDER-NEUTRAL TRANSFER OBLIGATIONS</p>
+                        <div class="runtime-authority-lines" id="runtime-transfer-lines"></div>
+                        <section class="runtime-razorpay-action" aria-labelledby="runtime-razorpay-title">
+                          <div class="runtime-execution-head">
+                            <div><p class="micro-label">EXPLICIT PROVIDER ACTION</p><h3 id="runtime-razorpay-title">Razorpay Test Mode order</h3></div>
+                            <strong data-razorpay-field="state">NOT DEMONSTRATED</strong>
+                          </div>
+                          <p class="runtime-boundary-copy">Razorpay Test Mode order creation and existing-order resolution only. This does not demonstrate payment capture, customer payment, webhook handling, transfer, settlement, or real-money movement.</p>
+                          <button class="button button-secondary" id="create-runtime-razorpay-order" type="button"><span>Create Razorpay Test Mode order</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                          <p class="action-note" id="runtime-razorpay-status" role="status" aria-live="polite">No Razorpay order action has been requested.</p>
+                          <div class="runtime-razorpay-result" id="runtime-razorpay-result" hidden>
+                            <p class="micro-label" data-razorpay-field="observation">—</p>
+                            <dl class="runtime-authority-facts">
+                              <div><dt>RESOLUTION</dt><dd data-razorpay-field="resolution">—</dd></div>
+                              <div><dt>PROVIDER ORDER ID</dt><dd data-razorpay-field="provider-order-id">—</dd></div>
+                              <div><dt>EXECUTION ID</dt><dd data-razorpay-field="execution-id">—</dd></div>
+                              <div><dt>ORDER AMOUNT</dt><dd><span data-razorpay-field="order-amount">—</span><small data-razorpay-field="order-amount-raw">—</small></dd></div>
+                              <div><dt>RECEIPT</dt><dd data-razorpay-field="receipt">—</dd></div>
+                            </dl>
+                          </div>
+                        </section>
+                      </div>
                     </div>
+                    <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
                   </section>
                 </div>
               </div>
             </section>
-          </section>
-        </div>
+      </section>
 
-        <aside class="clearing-authority-map" aria-label="Clearing authority path">
-          <p class="micro-label">CLEARING PATH</p>
-          <ol>
-            <li><span>01</span><div><strong>Frozen buyer policy</strong><small>SERVER AUTHORITY</small></div></li>
-            <li><span>02</span><div><strong>Submitted offers</strong><small>SIGNED · AUTHENTICATED</small></div></li>
-            <li><span>03</span><div><strong>Explicit close</strong><small>EMPTY OBJECT BODY</small></div></li>
-            <li><span>04</span><div><strong>Deterministic allocation</strong><small>PRODUCTION LOGIC</small></div></li>
-            <li><span>05</span><div><strong>Allocation proof</strong><small>PROOF CARRIER</small></div></li>
-            <li><span>06</span><div><strong>Independent replay</strong><small>CONFIGURED TRUST ROOTS</small></div></li>
-            <li><span>07</span><div><strong>Controlled alteration</strong><small>DETERMINISTIC FIXTURE</small></div></li>
-            <li><span>08</span><div><strong>Execution authority</strong><small>PROVIDER-NEUTRAL PLAN</small></div></li>
-          </ol>
-          <p>AI can propose inputs. It cannot close a market or select its winners.</p>
-        </aside>
+      <section class="clearing-dossier-link" aria-labelledby="clearing-dossier-title">
+        <div>
+          <p class="micro-label">SUPPORTING MATERIAL</p>
+          <h2 id="clearing-dossier-title">What was demonstrated. What was not.</h2>
+        </div>
+        <a class="text-link" href="#evidence">Evidence dossier <span aria-hidden="true">↗</span></a>
+      </section>
+
+      <section class="clearing-proof-limitations" aria-labelledby="clearing-proof-title">
+        <div class="clearing-proof-heading">
+          <p class="micro-label">PROOF &amp; LIMITATIONS</p>
+          <h2 id="clearing-proof-title">The boundary, at a glance.</h2>
+        </div>
+        <div class="clearing-proof-grid">
+          <ul class="clearing-proof-list">
+            <li><span aria-hidden="true">✓</span> Deterministic allocation</li>
+            <li><span aria-hidden="true">✓</span> Replay-verifiable AllocationCertificateV2</li>
+            <li><span aria-hidden="true">✓</span> Independent verifier</li>
+            <li><span aria-hidden="true">✓</span> Money Governor authorization</li>
+            <li><span aria-hidden="true">✓</span> Provider-neutral ExecutionPlanV1</li>
+            <li><span aria-hidden="true">✓</span> Razorpay Test Mode boundary</li>
+          </ul>
+          <div class="clearing-limitations-summary">
+            <span class="evidence-taxonomy evidence-limit">NOT DEMONSTRATED</span>
+            <p>Payment capture · settlement · physical fulfillment · real-money movement · refunds/reversals</p>
+          </div>
+        </div>
       </section>
     </main>
 
-    <main id="top" data-app-view="evidence" hidden>
-      <section class="hero act" id="demo" aria-labelledby="hero-title">
-        <div class="ambient ambient-one" aria-hidden="true"></div>
-        <div class="ambient ambient-two" aria-hidden="true"></div>
-        <div class="hero-eyebrow"><p class="kicker">MARKET INFRASTRUCTURE FOR AI COMMERCE</p><span class="edition">ONE BUYER. MANY SELLERS.</span></div>
-        <h1 id="hero-title" aria-label="Agents propose. Rules decide."><span class="headline-line" data-split aria-hidden="true">AGENTS PROPOSE.</span><span class="headline-line" data-split aria-hidden="true">RULES DECIDE.</span></h1>
-        <div class="hero-grid">
-          <div class="hero-copy" data-reveal>
-            <p class="hero-lead">Let AI handle the ambiguity.<br /><strong>Keep the money deterministic.</strong></p>
-            <p class="hero-description">CLEAR turns a buyer’s intent into authenticated offers, a deterministic allocation, a replay-verifiable certificate, and a Governor-gated execution plan.</p>
-            <div class="hero-actions"><button class="button button-primary" id="run-demo" type="button"><span data-run-label>Run the authority demo</span><span class="button-arrow" aria-hidden="true">↗</span></button></div>
-            <p class="action-note" id="run-status" role="status" aria-live="polite">Local. Deterministic. No credentials needed.</p>
-            <a class="text-link results-link" href="#evidence" hidden>Explore this run <span aria-hidden="true">↓</span></a>
-          </div>
-          <div class="proof-console" data-reveal aria-label="Current demo status">
-            <div class="console-header"><span><span class="status-dot" aria-hidden="true"></span> THE AUTHORITY BOUNDARY</span><span data-state-label>READY TO RUN</span></div>
-            <div class="console-main"><p class="console-caption">A proposal is a possibility.</p><p class="console-statement">Proof makes<br />it <span class="console-highlight">clear.</span></p><span class="console-corner" aria-hidden="true">↗</span></div>
-            <div class="console-route" aria-label="Proof before payment authorization"><span>Offer</span><i aria-hidden="true">→</i><span>Verify</span><i aria-hidden="true">→</i><span>Authorize</span></div>
-            <div class="console-result"><span data-console-status>Waiting for a verified certificate</span><span class="console-result-icon" data-console-icon aria-hidden="true">○</span></div>
-            <div class="console-scan" aria-hidden="true"></div>
+    <footer class="workspace-footer" data-app-view="clearing" hidden>
+      <span>BUYER → MERCHANT → CLEARING</span>
+      <a href="#evidence">Evidence dossier <span aria-hidden="true">↗</span></a>
+    </footer>
+
+    <main class="evidence-shell" id="top" data-app-view="evidence" hidden>
+      <section class="evidence-dossier-intro" id="evidence" aria-labelledby="evidence-dossier-title">
+        <div>
+          <p class="kicker">CLEAR · EVIDENCE DOSSIER</p>
+          <h1 id="evidence-dossier-title">What was demonstrated.<br /><em>What was not.</em></h1>
+        </div>
+        <div class="evidence-dossier-intro-copy">
+          <p>Supporting evidence for claims that do not belong inside the live Buyer → Merchant → Clearing workflow.</p>
+          <div class="evidence-intro-actions">
+            <a class="text-link" href="#clearing">Return to Clearing <span aria-hidden="true">↗</span></a>
+            <button class="motion-toggle" type="button" aria-pressed="false"><span data-motion-icon aria-hidden="true">Ⅱ</span> <span data-motion-label>Pause motion</span></button>
           </div>
         </div>
-        <div class="hero-bottom-line"><a href="#evidence">FOLLOW THE PROOF <span aria-hidden="true">↓</span></a><span>NO VALID CERTIFICATE = NO MONEY ACTION</span><button class="motion-toggle" type="button" aria-pressed="false"><span data-motion-icon aria-hidden="true">Ⅱ</span> <span data-motion-label>Pause motion</span></button></div>
       </section>
 
-      <div class="principle-strip" aria-hidden="true"><div class="principle-track"><span>AI PROPOSES <i>↗</i> RULES DECIDE <i>↗</i> PROOF TRAVELS <i>↗</i> MONEY WAITS <i>↗</i></span><span>AI PROPOSES <i>↗</i> RULES DECIDE <i>↗</i> PROOF TRAVELS <i>↗</i> MONEY WAITS <i>↗</i></span></div></div>
-
-      <section class="act" id="evidence" aria-labelledby="intent-title">
-        <div class="act-heading" data-reveal><span class="act-number">01 /</span><div><p class="kicker">FROM INTENT TO OFFERS</p><h2 id="intent-title">An open market.<br />A <em>clear</em> set of rules.</h2></div><p class="act-caption">One buyer. Independent sellers. Every offer checked against its merchant’s frozen sources.</p></div>
-        <div class="intent-layout" data-reveal>
-          <article class="intent-request">
-            <p class="micro-label">BUYER REQUEST</p>
-            <div class="request-stat"><span data-field="requested-quantity">—</span><span class="unit">UNITS</span></div>
-            <dl class="request-details"><div><dt>MAX WINNERS</dt><dd data-field="max-winners">—</dd></div><div><dt>INPUT CONTEXT</dt><dd>FIXTURE-BACKED</dd></div></dl>
-            <p class="evidence-label" data-field="intent-evidence">DETERMINISTIC FIXTURE</p>
+      <section class="dossier-section" id="current-runtime-proof" aria-labelledby="runtime-proof-heading">
+        <div class="dossier-section-heading">
+          <span class="dossier-index">01 /</span>
+          <div><p class="micro-label">CURRENT RUNTIME PROOF</p><h2 id="runtime-proof-heading">The live product path.</h2></div>
+          <span class="evidence-taxonomy evidence-runtime">REAL LOCAL PRODUCTION LOGIC</span>
+        </div>
+        <div class="runtime-proof-grid">
+          <article class="runtime-proof-summary">
+            <p>The Clearing workspace owns the current runtime proof. It runs deterministic allocation, produces AllocationCertificateV2, verifies it by independent replay, and gates ExecutionPlanV1 through the Money Governor.</p>
+            <a class="text-link" href="#clearing">Inspect current Clearing <span aria-hidden="true">↗</span></a>
           </article>
-          <div class="intent-boundary">
-            <div class="vertical-rule"></div>
-            <div><p class="micro-label">AI TRUTH BOUNDARY</p><p>AI is not invoked by this deterministic run.</p><p class="muted">AI output can never authorize money.</p></div>
-          </div>
-          <div class="intent-objects">
-            <article class="policy-object">
-              <p class="micro-label">FROZEN POLICY OBJECT</p>
-              <div class="object-title-line"><h3 data-field="policy-identity">BuyerPolicyV2</h3><span class="evidence-label" data-field="policy-status">AWAITING RUN</span></div>
-              <p class="object-note">One deterministic buyer policy freezes the request before supply is admitted.</p>
-            </article>
-            <article class="offers-object">
-              <div class="offers-heading"><p class="micro-label">AUTHENTICATED OFFERS</p><span class="evidence-label">REAL LOCAL PRODUCTION LOGIC</span></div>
-              <div class="offer-list" id="offer-list"><p class="muted">Run the demo to load authenticated offers.</p></div>
-            </article>
-          </div>
+          <dl class="runtime-proof-ledger">
+            <div><dt>ALLOCATION</dt><dd>DETERMINISTIC</dd></div>
+            <div><dt>PROOF</dt><dd>AllocationCertificateV2</dd></div>
+            <div><dt>VERIFICATION</dt><dd>INDEPENDENT REPLAY</dd></div>
+            <div><dt>MONEY AUTHORITY</dt><dd>Money Governor → ExecutionPlanV1</dd></div>
+          </dl>
         </div>
       </section>
 
-      <section class="act clearing-act" aria-labelledby="clearing-title">
-        <div class="act-heading" data-reveal><span class="act-number">02 /</span><div><p class="kicker">THE ALLOCATION</p><h2 id="clearing-title">An answer.<br />And the <em>proof.</em></h2></div><p class="act-caption">The allocator decides. The certificate carries the evidence. These numbers come from the actual local run.</p></div>
-        <div class="clearing-layout" data-reveal>
-          <div class="metric-grid">
-            <div class="metric"><span class="metric-label">REQUESTED</span><strong data-field="allocation-requested">—</strong><span>UNITS</span></div>
-            <div class="metric"><span class="metric-label">FULFILLED</span><strong data-field="allocation-fulfilled">—</strong><span>UNITS</span></div>
-            <div class="metric"><span class="metric-label">WINNERS</span><strong data-field="winner-count">—</strong><span>MERCHANTS</span></div>
-            <div class="metric total"><span class="metric-label">TOTAL</span><strong data-field="allocation-total">—</strong><span data-field="allocation-total-paise">— PAISE</span></div>
-          </div>
-          <div class="certificate certificate-produced" data-certificate="valid">
-            <div class="certificate-rail"></div><div class="certificate-head"><span>ALLOCATION CERTIFICATE</span><span class="certificate-state" data-field="certificate-state">AWAITING RUN</span></div>
-            <div class="certificate-body"><h3 data-field="certificate-identity">AllocationCertificateV2</h3><p class="mono" data-field="certificate-id">Awaiting local run</p><p class="muted">Canonical proof object carrying the clearing claim.</p></div>
-          </div>
+      <section class="dossier-section" id="historical-evidence" aria-labelledby="historical-evidence-heading">
+        <div class="dossier-section-heading">
+          <span class="dossier-index">02 /</span>
+          <div><p class="micro-label">HISTORICAL LIVE EVIDENCE</p><h2 id="historical-evidence-heading">Observed provider boundaries.</h2></div>
+          <span class="evidence-taxonomy evidence-historical">HISTORICAL LIVE EVIDENCE ONLY</span>
         </div>
-        <div class="winner-strip"><span class="micro-label">RETURNED WINNER IDS</span><div id="winner-ids" class="id-list"><span class="muted">Awaiting local run</span></div></div>
+        <div class="historical-evidence-grid">
+          <article class="dossier-card">
+            <p class="micro-label">BUYER AI</p>
+            <h3>Intent interpretation</h3>
+            <p>A reviewed historical run exercised buyer intent through an externally supplied OpenAI-compatible provider and the strict production parsing boundary.</p>
+            <p class="dossier-boundary">It does not establish market, allocation, winner, or money authority.</p>
+            <span class="evidence-taxonomy evidence-historical">HISTORICAL LIVE EVIDENCE ONLY</span>
+          </article>
+          <article class="dossier-card">
+            <p class="micro-label">RAZORPAY TEST MODE</p>
+            <h3>Order-path evidence</h3>
+            <p>CLEAR’s Governor-gated Razorpay order path was exercised against real Razorpay Test Mode: order creation succeeded and a second identical call resolved the existing provider order through provider-backed retrieval.</p>
+            <p class="dossier-boundary">This does not prove capture, customer payment, live webhook, transfer creation, settlement, refunds, fulfillment, real-money movement, exactly-once delivery, or full-system live execution.</p>
+            <span class="evidence-taxonomy evidence-historical">HISTORICAL LIVE EVIDENCE ONLY</span>
+          </article>
+          <article class="dossier-card">
+            <p class="micro-label">MERCHANT AI</p>
+            <h3>Offer proposal</h3>
+            <p>CLEAR's merchant-proposal task was exercised through an externally supplied OpenAI-compatible provider. The reviewed run returned a schema-valid NO_OFFER and passed the strict advisory production boundary.</p>
+            <p class="dossier-boundary">It does not demonstrate signing, authentication, admission, allocation, winner selection, or payment authorization.</p>
+            <span class="evidence-taxonomy evidence-historical">HISTORICAL LIVE EVIDENCE ONLY</span>
+          </article>
+          <article class="dossier-card">
+            <p class="micro-label">CERTIFICATE EXPLANATION AI</p>
+            <h3>Verified-evidence explanation</h3>
+            <p>CLEAR's certificate-explanation task was exercised through an externally supplied OpenAI-compatible provider after independent certificate verification. The reviewed run returned advisory claims whose citation references passed the implemented validation boundary.</p>
+            <p class="dossier-boundary">AI did not verify the certificate. The run does not demonstrate natural-language entailment or formal proof, and AI cannot alter allocation or money authority.</p>
+            <span class="evidence-taxonomy evidence-historical">HISTORICAL LIVE EVIDENCE ONLY</span>
+          </article>
+        </div>
       </section>
 
-      <section class="act authority-act" id="authority" aria-labelledby="authority-title">
-        <div class="act-heading" data-reveal><span class="act-number">03 /</span><div><p class="kicker">THE MONEY GOVERNOR</p><h2 id="authority-title">VERIFIED PROOF.<br /><em>EXECUTION RESERVED.</em></h2></div><p class="act-caption">Independent verification comes first. Only then can the Governor reserve an authorized execution plan.</p></div>
-        <div class="authority-flow" data-reveal>
-          <div class="certificate certificate-verified" data-certificate="verified"><div class="certificate-rail"></div><div class="certificate-head"><span>ALLOCATION CERTIFICATE</span><span class="certificate-state" data-field="verification-state">AWAITING RUN</span></div><div class="certificate-body"><h3>AllocationCertificateV2</h3><p data-field="verification-copy">Awaiting local verification.</p></div></div>
-          <div class="authority-boundary"><span>AUTHORITY<br />BOUNDARY</span><div class="boundary-line"></div></div>
-          <div class="governor-block"><p class="micro-label">MONEY GOVERNOR</p><h3 data-field="governor-state">AWAITING RUN</h3><p class="mono" data-field="governor-plan">ExecutionPlanV1 / AWAITING RUN</p><p class="muted">Without verified proof: CLOSED</p></div>
+      <section class="dossier-section" id="controlled-demonstrations" aria-labelledby="controlled-demonstrations-heading">
+        <div class="dossier-section-heading">
+          <span class="dossier-index">03 /</span>
+          <div><p class="micro-label">CONTROLLED DEMONSTRATIONS</p><h2 id="controlled-demonstrations-heading">Run only what you choose.</h2></div>
         </div>
-        <div class="resolved-chain"><span data-field="resolved-chain">AWAITING PROOF &#8594; MONEY GOVERNOR &#8594; AWAITING RESERVATION</span></div>
-      </section>
 
-      <section class="act provider-act" aria-labelledby="provider-title">
-        <div class="act-heading" data-reveal><span class="act-number">04 /</span><div><p class="kicker">THE CONTROLLED PROVIDER</p><h2 id="provider-title">Same request.<br /><em>Different resolution.</em></h2></div><p class="act-caption">One controlled order creation, then a retrieval of that same order. Live Razorpay is not contacted.</p></div>
-        <div class="provider-header"><div><p class="micro-label">CONTROLLED ORDER</p><h3 class="mono" data-field="provider-order-id">AWAITING RUN</h3><p class="muted provider-boundary-note">Live Razorpay was not contacted by this deterministic run.</p></div><span class="evidence-label" data-field="provider-evidence">FAKE/CONTROLLED EXTERNAL TRANSPORT</span></div>
-        <div class="provider-trace" data-reveal>
-          <article class="trace-step"><span class="trace-index">01</span><div><p class="micro-label">FIRST INVOCATION</p><h3 data-field="provider-first-resolution">AWAITING RUN</h3><p class="mono">POST <b data-field="provider-first-post">—</b> / GET <b data-field="provider-first-get">—</b></p></div></article>
-          <div class="trace-arrow">&#8594;</div>
-          <article class="trace-step"><span class="trace-index">02</span><div><p class="micro-label">SECOND IDENTICAL INVOCATION</p><h3 data-field="provider-second-resolution">AWAITING RUN</h3><p class="mono">Controlled-provider retrieval</p></div></article>
-          <div class="trace-arrow">&#8594;</div>
-          <article class="trace-step cumulative"><span class="trace-index">&#8721;</span><div><p class="micro-label">CUMULATIVE AFTER SECOND CALL</p><h3 data-field="provider-cumulative-state">AWAITING RUN</h3><p class="mono">POST <b data-field="provider-cumulative-post">—</b> / GET <b data-field="provider-cumulative-get">—</b></p></div></article>
-        </div>
-        <p class="provider-note">This controlled trace does not claim exactly-once network delivery.</p>
-        <section class="live-evidence" aria-labelledby="live-evidence-title">
-          <div class="live-evidence-intro">
-            <p class="micro-label">OPTIONAL CURRENT-RUN CHECK</p>
-            <h3 id="live-evidence-title">Razorpay Test Mode order evidence</h3>
+        <div class="demonstration-grid">
+          <article class="demonstration-card authority-demo-card" id="demo" aria-labelledby="hero-title">
+            <div class="demonstration-card-heading">
+              <div><p class="micro-label">DETERMINISTIC AUTHORITY DEMO</p><h3 id="hero-title">Proof before money authority.</h3></div>
+              <span class="evidence-taxonomy evidence-fixture">DETERMINISTIC FIXTURE</span>
+            </div>
+            <p class="demonstration-copy">Runs the local allocator, certificate verifier, Money Governor, and controlled provider transport. It uses no credentials.</p>
+            <div class="demonstration-action-row">
+              <button class="button button-primary" id="run-demo" type="button"><span data-run-label>Run the authority demo</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+              <p class="action-note" id="run-status" role="status" aria-live="polite">Local. Deterministic. No credentials needed.</p>
+            </div>
+            <div class="proof-console dossier-console" aria-label="Current demo status">
+              <div class="console-header"><span><span class="status-dot" aria-hidden="true"></span> AUTHORITY DEMO</span><span data-state-label>READY TO RUN</span></div>
+              <div class="console-main"><p class="console-caption">A proposal is a possibility.</p><p class="console-statement">Proof makes it <span class="console-highlight">clear.</span></p></div>
+              <div class="console-route" aria-label="Proof before payment authorization"><span>Offer</span><i aria-hidden="true">→</i><span>Verify</span><i aria-hidden="true">→</i><span>Authorize</span></div>
+              <div class="console-result"><span data-console-status>Waiting for a verified certificate</span><span class="console-result-icon" data-console-icon aria-hidden="true">○</span></div>
+              <div class="console-scan" aria-hidden="true"></div>
+            </div>
+            <a class="text-link results-link" href="#authority-demo-result" hidden>Inspect this run <span aria-hidden="true">↓</span></a>
+
+            <details class="demonstration-result" id="authority-demo-result">
+              <summary>Runtime result details <span aria-hidden="true">+</span></summary>
+              <div class="demonstration-result-body">
+                <div class="demo-result-block">
+                  <div class="demo-result-heading"><p class="micro-label">BUYER POLICY + AUTHENTICATED OFFERS</p><span class="evidence-taxonomy evidence-runtime">REAL LOCAL PRODUCTION LOGIC</span></div>
+                  <dl class="dossier-fact-grid">
+                    <div><dt>REQUESTED</dt><dd data-field="requested-quantity">—</dd></div>
+                    <div><dt>MAX WINNERS</dt><dd data-field="max-winners">—</dd></div>
+                    <div><dt>POLICY</dt><dd data-field="policy-identity">BuyerPolicyV2</dd><small data-field="policy-status">AWAITING RUN</small></div>
+                    <div><dt>INPUT CONTEXT</dt><dd data-field="intent-evidence">DETERMINISTIC FIXTURE</dd></div>
+                  </dl>
+                  <div class="compact-object-list" id="offer-list"><p class="muted">Run the demo to load authenticated offers.</p></div>
+                </div>
+                <div class="demo-result-block">
+                  <div class="demo-result-heading"><p class="micro-label">ALLOCATION + CERTIFICATE</p><span class="evidence-taxonomy evidence-runtime">REAL LOCAL PRODUCTION LOGIC</span></div>
+                  <dl class="dossier-fact-grid">
+                    <div><dt>REQUESTED</dt><dd data-field="allocation-requested">—</dd></div>
+                    <div><dt>FULFILLED</dt><dd data-field="allocation-fulfilled">—</dd></div>
+                    <div><dt>WINNERS</dt><dd data-field="winner-count">—</dd></div>
+                    <div><dt>TOTAL</dt><dd data-field="allocation-total">—</dd><small data-field="allocation-total-paise">— PAISE</small></div>
+                    <div><dt>CERTIFICATE</dt><dd data-field="certificate-identity">AllocationCertificateV2</dd><small data-field="certificate-state">AWAITING RUN</small></div>
+                    <div><dt>CERTIFICATE ID</dt><dd class="mono" data-field="certificate-id">Awaiting local run</dd></div>
+                  </dl>
+                  <div class="compact-id-list"><span class="micro-label">RETURNED WINNER IDS</span><div id="winner-ids" class="id-list"><span class="muted">Awaiting local run</span></div></div>
+                </div>
+                <div class="demo-result-block demo-authority-result">
+                  <div class="demo-result-heading"><p class="micro-label">INDEPENDENT REPLAY + MONEY GOVERNOR</p><span class="evidence-taxonomy evidence-runtime">REAL LOCAL PRODUCTION LOGIC</span></div>
+                  <dl class="dossier-fact-grid">
+                    <div><dt>VERIFICATION</dt><dd data-field="verification-state">AWAITING RUN</dd><small data-field="verification-copy">Awaiting local verification.</small></div>
+                    <div><dt>MONEY GOVERNOR</dt><dd data-field="governor-state">AWAITING RUN</dd><small class="mono" data-field="governor-plan">ExecutionPlanV1 / AWAITING RUN</small></div>
+                  </dl>
+                  <p class="runtime-invariant">NO VALID CERTIFICATE = NO MONEY ACTION</p>
+                  <p class="resolved-chain"><span data-field="resolved-chain">AWAITING PROOF → MONEY GOVERNOR → AWAITING RESERVATION</span></p>
+                </div>
+                <div class="demo-result-block">
+                  <div class="demo-result-heading"><p class="micro-label">CONTROLLED PROVIDER TRANSPORT</p><span class="evidence-taxonomy evidence-transport" data-field="provider-evidence">FAKE/CONTROLLED EXTERNAL TRANSPORT</span></div>
+                  <p class="mono" data-field="provider-order-id">AWAITING RUN</p>
+                  <div class="provider-trace compact-provider-trace">
+                    <article class="trace-step"><span class="trace-index">01</span><div><p class="micro-label">FIRST INVOCATION</p><h3 data-field="provider-first-resolution">AWAITING RUN</h3><p class="mono">POST <b data-field="provider-first-post">—</b> / GET <b data-field="provider-first-get">—</b></p></div></article>
+                    <article class="trace-step"><span class="trace-index">02</span><div><p class="micro-label">SECOND IDENTICAL INVOCATION</p><h3 data-field="provider-second-resolution">AWAITING RUN</h3><p class="mono">Controlled-provider retrieval</p></div></article>
+                    <article class="trace-step cumulative"><span class="trace-index">∑</span><div><p class="micro-label">CUMULATIVE</p><h3 data-field="provider-cumulative-state">AWAITING RUN</h3><p class="mono">POST <b data-field="provider-cumulative-post">—</b> / GET <b data-field="provider-cumulative-get">—</b></p></div></article>
+                  </div>
+                  <p class="dossier-boundary">Live Razorpay is not contacted. This controlled trace does not claim exactly-once network delivery.</p>
+                </div>
+              </div>
+            </details>
+          </article>
+
+          <article class="demonstration-card tamper-demo-card" aria-labelledby="tamper-title">
+            <div class="demonstration-card-heading">
+              <div><p class="micro-label">CONTROL PATH</p><h3 id="tamper-title">Altered claim. Broken chain.</h3></div>
+              <span class="evidence-taxonomy evidence-fixture">DETERMINISTIC FIXTURE</span>
+            </div>
+            <p class="demonstration-copy">A semantically altered allocation claim fails independent verification. No execution reservation. No provider action.</p>
+            <button class="button button-secondary" id="reveal-tamper" type="button" aria-controls="tamper-flow tamper-counters" aria-expanded="false" disabled>Reveal the tamper path <span class="button-arrow" aria-hidden="true">↓</span></button>
+            <p id="tamper-note" class="action-note">Run the demo first. This reveals the tamper evidence from that same run.</p>
+            <div class="tamper-flow compact-tamper-flow" id="tamper-flow" hidden>
+              <div class="tamper-proof-wrap"><div class="certificate certificate-failed"><div class="certificate-rail"></div><div class="certificate-head"><span>ALLOCATION CERTIFICATE</span><span class="certificate-state">NOT VERIFIED</span></div><div class="certificate-body"><h3>AllocationCertificateV2</h3><p class="mono" data-field="tamper-failure-code">—</p><p data-field="tamper-altered-claim">Awaiting reveal.</p></div></div><p class="tamper-stop">HARD STOP</p></div>
+              <div class="governor-block governor-closed"><p class="micro-label">MONEY GOVERNOR</p><h3>CLOSED</h3><p class="mono">execution reservation = <b data-field="tamper-reservation">—</b></p><p class="mono">idempotency record = <b data-field="tamper-idempotency">—</b></p></div>
+            </div>
+            <div class="tamper-counters" id="tamper-counters" hidden><span class="micro-label">TAMPER BRANCH PROVIDER COUNTERS</span><span class="counter-value">POST <b data-field="tamper-post">—</b></span><span class="counter-value">GET <b data-field="tamper-get">—</b></span><strong class="tamper-conclusion">NO MONEY ACTION</strong></div>
+          </article>
+
+          <article class="demonstration-card ai-live-task" aria-labelledby="merchant-ai-title">
+            <div class="demonstration-card-heading"><div><p class="micro-label">OPTIONAL CURRENT-RUN ACTION</p><h3 id="merchant-ai-title">Merchant proposal AI</h3></div><span class="ai-run-state" data-ai-status="merchant">NOT RUN · USER INITIATED</span></div>
+            <p class="support-copy">Server-owned buyer, catalog, inventory, and economic-policy facts go through the production proposal and deterministic merchant boundaries.</p>
+            <button class="button button-secondary ai-run-button" id="run-merchant-ai" type="button" aria-controls="merchant-ai-result"><span data-ai-button-label="merchant">Run merchant proposal AI</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+            <p class="action-note" id="merchant-ai-status" role="status" aria-live="polite">No current-run provider claim.</p>
+            <div class="ai-live-result" id="merchant-ai-result" aria-live="polite" hidden>
+              <p class="ai-provider-kicker">CURRENT RUN · EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER</p><h4 data-merchant-field="heading">CURRENT-RUN RESULT</h4><p class="mono live-error-code" data-merchant-field="error-code" hidden></p><p class="support-copy" data-merchant-field="message"></p>
+              <dl class="ai-facts" data-merchant-success hidden><div><dt>TASK</dt><dd>MERCHANT PROPOSAL</dd></div><div><dt>AUTHORITY</dt><dd>ADVISORY ONLY</dd></div><div><dt>STRICT PROPOSAL PARSE</dt><dd data-merchant-field="parse">—</dd></div><div><dt>ADVISORY DECISION</dt><dd data-merchant-field="decision">—</dd><small data-merchant-field="lines">—</small></div><div><dt>DETERMINISTIC MERCHANT BOUNDARY</dt><dd data-merchant-field="boundary">—</dd></div></dl>
+              <p class="provider-note" data-merchant-success hidden>AI proposed a candidate. Deterministic merchant rules decide whether that candidate becomes an admissible offer input.</p>
+            </div>
+          </article>
+
+          <article class="demonstration-card ai-live-task" aria-labelledby="explanation-ai-title">
+            <div class="demonstration-card-heading"><div><p class="micro-label">OPTIONAL CURRENT-RUN ACTION</p><h3 id="explanation-ai-title">Certificate explanation AI</h3></div><span class="ai-run-state" data-ai-status="explanation">NOT RUN · USER INITIATED</span></div>
+            <p class="support-copy">A server-owned AllocationCertificateV2 must pass independent replay verification before the production explanation task may contact AI.</p>
+            <button class="button button-secondary ai-run-button" id="run-explanation-ai" type="button" aria-controls="explanation-ai-result"><span data-ai-button-label="explanation">Run certificate explanation AI</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+            <p class="action-note" id="explanation-ai-status" role="status" aria-live="polite">No current-run provider claim.</p>
+            <div class="ai-live-result" id="explanation-ai-result" aria-live="polite" hidden>
+              <p class="ai-provider-kicker">CURRENT RUN · EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER</p><h4 data-explanation-field="heading">CURRENT-RUN RESULT</h4><p class="mono live-error-code" data-explanation-field="error-code" hidden></p><p class="support-copy" data-explanation-field="message"></p>
+              <dl class="ai-facts" data-explanation-success hidden><div><dt>CERTIFICATE</dt><dd>INDEPENDENTLY VERIFIED BEFORE AI</dd></div><div><dt>TASK</dt><dd>CERTIFICATE EXPLANATION</dd></div><div><dt>AUTHORITY</dt><dd>ADVISORY ONLY</dd></div><div><dt>CITATION REFERENCES</dt><dd>VALIDATED</dd></div><div><dt>CLAIMS VALIDATED</dt><dd data-explanation-field="claims-count">—</dd></div><div><dt>CLAIMS DISPLAYED</dt><dd data-explanation-field="displayed-claims-count">—</dd><small class="mono" data-explanation-field="digest">—</small></div></dl>
+              <div class="ai-claims" data-explanation-success hidden><p class="micro-label">ADVISORY EXPLANATION</p><div data-explanation-field="claims"></div></div><p class="provider-note" data-explanation-success hidden>The model explains already-verified evidence. It does not verify the certificate and cannot alter allocation or authorize money.</p>
+            </div>
+          </article>
+
+          <article class="demonstration-card razorpay-demo-card" aria-labelledby="live-evidence-title">
+            <div class="demonstration-card-heading"><div><p class="micro-label">OPTIONAL CURRENT-RUN ACTION</p><h3 id="live-evidence-title">Razorpay Test Mode order evidence</h3></div><span class="live-not-run">NOT RUN · USER INITIATED</span></div>
             <p class="support-copy">This is a separate, explicit server-side action. It does not run with the deterministic demo, the tamper reveal, page load, or scrolling.</p>
             <div class="live-boundaries" aria-label="Provider evidence boundaries">
-              <div><span>CURRENT DETERMINISTIC DEMO</span><span class="evidence-label">FAKE/CONTROLLED EXTERNAL TRANSPORT</span></div>
-              <div><span>HISTORICAL RAZORPAY TEST MODE EVIDENCE</span><span class="evidence-label">HISTORICAL LIVE EVIDENCE ONLY</span></div>
-              <div><span>OPTIONAL CURRENT-RUN TEST MODE ACTION</span><span class="live-not-run">NOT RUN · USER INITIATED</span></div>
+              <div><span>CURRENT DETERMINISTIC DEMO</span><span class="evidence-taxonomy evidence-transport">FAKE/CONTROLLED EXTERNAL TRANSPORT</span></div>
+              <div><span>HISTORICAL RAZORPAY TEST MODE EVIDENCE</span><span class="evidence-taxonomy evidence-historical">HISTORICAL LIVE EVIDENCE ONLY</span></div>
             </div>
             <button class="button button-secondary" id="run-live-evidence" type="button" aria-controls="live-evidence-result"><span data-live-run-label>Run Razorpay Test Mode order check</span><span class="button-arrow" aria-hidden="true">↗</span></button>
             <p class="action-note" id="live-evidence-status" role="status" aria-live="polite">No current-run provider claim. Requires server-side Test Mode credentials.</p>
-          </div>
-          <div class="live-evidence-result" id="live-evidence-result" aria-live="polite" hidden>
-            <p class="live-run-heading">CURRENT RUN · RAZORPAY TEST MODE</p>
-            <h3 data-live-field="result-heading">CURRENT-RUN RESULT</h3>
-            <p class="mono live-error-code" data-live-field="error-code" hidden></p>
-            <p class="support-copy" data-live-field="result-message"></p>
-            <div class="live-fact-grid" data-live-success hidden>
-              <div><span>AUTHORITY</span><strong data-live-field="authority">—</strong></div>
-              <div><span>MONEY GOVERNOR</span><strong data-live-field="governor">—</strong><small data-live-field="execution-plan">—</small></div>
-              <div><span>FIRST INVOCATION</span><strong data-live-field="first-resolution">—</strong></div>
-              <div><span>SECOND IDENTICAL INVOCATION</span><strong data-live-field="second-resolution">—</strong><small data-live-field="retrieval">—</small></div>
-              <div class="live-order-identity"><span>PROVIDER ORDER ID</span><strong class="mono" data-live-field="provider-order-id">—</strong><small data-live-field="same-order">—</small></div>
+            <div class="live-evidence-result" id="live-evidence-result" aria-live="polite" hidden>
+              <p class="live-run-heading">CURRENT RUN · RAZORPAY TEST MODE</p><h4 data-live-field="result-heading">CURRENT-RUN RESULT</h4><p class="mono live-error-code" data-live-field="error-code" hidden></p><p class="support-copy" data-live-field="result-message"></p>
+              <div class="live-fact-grid" data-live-success hidden><div><span>AUTHORITY</span><strong data-live-field="authority">—</strong></div><div><span>MONEY GOVERNOR</span><strong data-live-field="governor">—</strong><small data-live-field="execution-plan">—</small></div><div><span>FIRST INVOCATION</span><strong data-live-field="first-resolution">—</strong></div><div><span>SECOND IDENTICAL INVOCATION</span><strong data-live-field="second-resolution">—</strong><small data-live-field="retrieval">—</small></div><div class="live-order-identity"><span>PROVIDER ORDER ID</span><strong class="mono" data-live-field="provider-order-id">—</strong><small data-live-field="same-order">—</small></div></div>
+              <p class="provider-note" data-live-success hidden>Current-run provider observation. This demonstrates Razorpay Test Mode order creation and existing-order resolution only.</p><p class="provider-note live-scope" data-live-success hidden>It does not demonstrate capture, customer payment, webhook delivery, transfer, settlement, refund, fulfillment, or real-money movement.</p>
             </div>
-            <p class="provider-note" data-live-success hidden>Current-run provider observation. This demonstrates Razorpay Test Mode order creation and existing-order resolution only.</p>
-            <p class="provider-note live-scope" data-live-success hidden>It does not demonstrate capture, customer payment, webhook delivery, transfer, settlement, refund, fulfillment, or real-money movement.</p>
-          </div>
-        </section>
-      </section>
-
-      <section class="act tamper-act" aria-labelledby="tamper-title">
-        <div class="act-heading" data-reveal><span class="act-number">05 /</span><div><p class="kicker">TRY THE OTHER PATH</p><h2 id="tamper-title">ALTERED CLAIM.<br /><em>BROKEN CHAIN.</em></h2></div><p class="act-caption">A semantically altered allocation claim fails independent verification. No execution reservation. No provider action.</p></div>
-        <div class="tamper-toolbar"><button class="button button-secondary" id="reveal-tamper" type="button" aria-controls="tamper-flow tamper-counters" aria-expanded="false" disabled>Reveal the tamper path <span class="button-arrow" aria-hidden="true">↓</span></button><p id="tamper-note" class="action-note">Run the demo first. This reveals the tamper evidence from that same run.</p></div>
-        <div class="tamper-flow" id="tamper-flow" hidden>
-          <div class="tamper-proof-wrap"><div class="certificate certificate-failed"><div class="certificate-rail"></div><div class="certificate-head"><span>ALLOCATION CERTIFICATE</span><span class="certificate-state">NOT VERIFIED</span></div><div class="certificate-body"><h3>AllocationCertificateV2</h3><p class="mono" data-field="tamper-failure-code">—</p><p data-field="tamper-altered-claim">Awaiting reveal.</p></div></div><p class="tamper-stop">HARD STOP</p></div>
-          <div class="authority-boundary tamper-boundary"><span>AUTHORITY<br />BOUNDARY</span><div class="boundary-line"></div></div>
-          <div class="governor-block governor-closed"><p class="micro-label">MONEY GOVERNOR</p><h3>CLOSED</h3><p class="mono">execution reservation = <b data-field="tamper-reservation">—</b></p><p class="mono">idempotency record = <b data-field="tamper-idempotency">—</b></p></div>
-        </div>
-        <div class="tamper-counters" id="tamper-counters" hidden><span class="micro-label">TAMPER BRANCH PROVIDER COUNTERS</span><span class="counter-value">POST <b data-field="tamper-post">—</b></span><span class="counter-value">GET <b data-field="tamper-get">—</b></span><strong class="tamper-conclusion">NO MONEY ACTION</strong></div>
-      </section>
-
-      <section class="supporting" id="supporting" aria-labelledby="supporting-title">
-        <div class="supporting-heading" data-reveal><p class="kicker">LOOK A LITTLE CLOSER</p><h2 id="supporting-title">Evidence,<br /><em>in context.</em></h2></div>
-        <div class="support-grid">
-          <details class="evidence-detail"><summary><span class="evidence-index">01 /</span><span class="evidence-heading">This local run</span><span class="evidence-subtitle">What happens when you press run</span><span class="expand-icon" aria-hidden="true">+</span></summary><div class="evidence-body"><div class="support-row"><span>Buyer policy freeze / allocation / verifier / Governor</span><span class="evidence-label">REAL LOCAL PRODUCTION LOGIC</span></div><div class="support-row"><span>Displayed buyer input context</span><span class="evidence-label">DETERMINISTIC FIXTURE</span></div><div class="support-row"><span>Controlled provider transport</span><span class="evidence-label">FAKE/CONTROLLED EXTERNAL TRANSPORT</span></div></div></details>
-          <details class="evidence-detail"><summary><span class="evidence-index">02 /</span><span class="evidence-heading">Razorpay Test Mode</span><span class="evidence-subtitle">Historical order-path evidence</span><span class="expand-icon" aria-hidden="true">+</span></summary><div class="evidence-body"><p class="support-title">Razorpay Test Mode</p><p class="support-copy">CLEAR’s Governor-gated Razorpay order path was exercised against real Razorpay Test Mode: order creation succeeded and a second identical call resolved the existing provider order through provider-backed retrieval.</p><span class="evidence-label">HISTORICAL LIVE EVIDENCE ONLY</span><p class="muted support-copy">This does not prove capture, customer payment, live webhook, transfer creation, settlement, refunds, fulfillment, real-money movement, or exactly-once delivery.</p></div></details>
-          <details class="evidence-detail"><summary><span class="evidence-index">03 /</span><span class="evidence-heading">The AI boundary</span><span class="evidence-subtitle">What has and hasn’t run live</span><span class="expand-icon" aria-hidden="true">+</span></summary><div class="evidence-body"><div class="support-row"><span>Buyer intent AI / externally supplied OpenAI-compatible provider</span><span class="evidence-label">HISTORICAL LIVE EVIDENCE ONLY</span></div><div class="support-row"><span>Merchant proposal AI</span><span class="evidence-label">HISTORICAL LIVE EVIDENCE ONLY</span></div><div class="support-row"><span>Certificate explanation AI</span><span class="evidence-label">HISTORICAL LIVE EVIDENCE ONLY</span></div><p class="support-copy">CLEAR's merchant-proposal task was exercised through an externally supplied OpenAI-compatible provider. The reviewed run returned a schema-valid NO_OFFER and passed the strict advisory production boundary. This does not demonstrate signing, authentication, admission, allocation, winner selection, or payment authorization.</p><p class="support-copy">CLEAR's certificate-explanation task was exercised through an externally supplied OpenAI-compatible provider after independent certificate verification. The reviewed run returned advisory claims whose citation references passed the implemented validation boundary. This does not mean AI verified the certificate, natural-language entailment was proven, explanation prose is authoritative, or allocation or money authority changed.</p><p class="ai-boundary-thesis">AI interprets and proposes. Deterministic systems decide. These separate actions are advisory, opt-in, and never authorize money.</p><div class="ai-live-actions">
-            <section class="ai-live-task" aria-labelledby="merchant-ai-title"><p class="micro-label">OPTIONAL CURRENT-RUN ACTION</p><h4 id="merchant-ai-title">Merchant proposal AI</h4><p class="ai-run-state" data-ai-status="merchant">NOT RUN · USER INITIATED</p><p class="support-copy">Server-owned buyer, catalog, inventory, and economic-policy facts go through the production proposal and deterministic merchant boundaries.</p><button class="button button-secondary ai-run-button" id="run-merchant-ai" type="button" aria-controls="merchant-ai-result"><span data-ai-button-label="merchant">Run merchant proposal AI</span><span class="button-arrow" aria-hidden="true">↗</span></button><p class="action-note" id="merchant-ai-status" role="status" aria-live="polite">No current-run provider claim.</p><div class="ai-live-result" id="merchant-ai-result" aria-live="polite" hidden><p class="ai-provider-kicker">CURRENT RUN · EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER</p><h5 data-merchant-field="heading">CURRENT-RUN RESULT</h5><p class="mono live-error-code" data-merchant-field="error-code" hidden></p><p class="support-copy" data-merchant-field="message"></p><dl class="ai-facts" data-merchant-success hidden><div><dt>TASK</dt><dd>MERCHANT PROPOSAL</dd></div><div><dt>AUTHORITY</dt><dd>ADVISORY ONLY</dd></div><div><dt>STRICT PROPOSAL PARSE</dt><dd data-merchant-field="parse">—</dd></div><div><dt>ADVISORY DECISION</dt><dd data-merchant-field="decision">—</dd><small data-merchant-field="lines">—</small></div><div><dt>DETERMINISTIC MERCHANT BOUNDARY</dt><dd data-merchant-field="boundary">—</dd></div></dl><p class="provider-note" data-merchant-success hidden>AI proposed a candidate. Deterministic merchant rules decide whether that candidate becomes an admissible offer input.</p></div></section>
-            <section class="ai-live-task" aria-labelledby="explanation-ai-title"><p class="micro-label">OPTIONAL CURRENT-RUN ACTION</p><h4 id="explanation-ai-title">Certificate explanation AI</h4><p class="ai-run-state" data-ai-status="explanation">NOT RUN · USER INITIATED</p><p class="support-copy">A server-owned AllocationCertificateV2 must pass independent replay verification before the production explanation task may contact AI.</p><button class="button button-secondary ai-run-button" id="run-explanation-ai" type="button" aria-controls="explanation-ai-result"><span data-ai-button-label="explanation">Run certificate explanation AI</span><span class="button-arrow" aria-hidden="true">↗</span></button><p class="action-note" id="explanation-ai-status" role="status" aria-live="polite">No current-run provider claim.</p><div class="ai-live-result" id="explanation-ai-result" aria-live="polite" hidden><p class="ai-provider-kicker">CURRENT RUN · EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER</p><h5 data-explanation-field="heading">CURRENT-RUN RESULT</h5><p class="mono live-error-code" data-explanation-field="error-code" hidden></p><p class="support-copy" data-explanation-field="message"></p><dl class="ai-facts" data-explanation-success hidden><div><dt>CERTIFICATE</dt><dd>INDEPENDENTLY VERIFIED BEFORE AI</dd></div><div><dt>TASK</dt><dd>CERTIFICATE EXPLANATION</dd></div><div><dt>AUTHORITY</dt><dd>ADVISORY ONLY</dd></div><div><dt>CITATION REFERENCES</dt><dd>VALIDATED</dd></div><div><dt>CLAIMS VALIDATED</dt><dd data-explanation-field="claims-count">—</dd></div><div><dt>CLAIMS DISPLAYED</dt><dd data-explanation-field="displayed-claims-count">—</dd><small class="mono" data-explanation-field="digest">—</small></div></dl><div class="ai-claims" data-explanation-success hidden><p class="micro-label">ADVISORY EXPLANATION</p><div data-explanation-field="claims"></div></div><p class="provider-note" data-explanation-success hidden>The model explains already-verified evidence. It does not verify the certificate and cannot alter allocation or authorize money.</p></div></section>
-          </div></div></details>
-          <details class="evidence-detail benchmark"><summary><span class="evidence-index">04 /</span><span class="evidence-heading">10,000 benchmark cases</span><span class="evidence-subtitle">Frozen evaluation evidence</span><span class="expand-icon" aria-hidden="true">+</span></summary><div class="evidence-body"><p class="support-title">AgentMarketBench / 10,000 deterministic cases</p><p class="support-copy">CLEAR reaches first-price-auction-level aggregate economic outcomes on this frozen benchmark while adding authenticated offers, deterministic multiwinner allocation, replay-verifiable certificates, and the Money Governor boundary.</p><p class="support-copy">CLEAR materially outperformed random, cheapest qualifying, static weighted, bilateral negotiation, and sequential negotiation on welfare + completion with descriptive paired 95% intervals excluding zero. FIRST_PRICE_REVERSE_AUCTION is economically near-identical in aggregate.</p></div></details>
+          </article>
         </div>
       </section>
 
-      <section class="architecture" id="architecture" aria-labelledby="architecture-title">
-        <div class="architecture-copy" data-reveal><p class="kicker">BUILT AROUND ONE BOUNDARY</p><h2 id="architecture-title">INTELLIGENCE PROPOSES.<br /><em>VERIFIER CHECKS.</em></h2><p class="muted">Follow the path from advisory input to an authorized provider operation. Each stage has a distinct responsibility.</p></div>
-        <div class="architecture-chain" data-reveal><span>AI ADVISORY</span><i>&#8594;</i><span>STRICT PARSING / FREEZE</span><i>&#8594;</i><span>BUYER POLICY</span><i>&#8594;</i><span>AUTHENTICATED OFFERS</span><i>&#8594;</i><span>MULTIWINNER ALLOCATION</span><i>&#8594;</i><span>ALLOCATION CERTIFICATE</span><i>&#8594;</i><span>REPLAY VERIFIER</span><i>&#8594;</i><span>MONEY GOVERNOR</span><i>&#8594;</i><span>PROVIDER BOUNDARY</span></div>
+      <section class="dossier-section dossier-limitations" id="limitations" aria-labelledby="limitations-title">
+        <div class="dossier-section-heading">
+          <span class="dossier-index">04 /</span>
+          <div><p class="micro-label">CLAIM BOUNDARIES</p><h2 id="limitations-title">Not demonstrated.</h2></div>
+          <span class="evidence-taxonomy evidence-limit">NOT DEMONSTRATED</span>
+        </div>
+        <p>A certificate establishes consistency under the protocol and supplied trust roots. It does not establish physical truth, fulfillment, or settlement.</p>
+        <ul class="limitations-list">
+          <li>Payment capture</li><li>Transfer creation or settlement</li><li>Physical fulfillment</li><li>Refunds or reversals</li><li>Real-money movement</li><li>Transcript completeness</li>
+        </ul>
       </section>
-
-      <section class="limitations" aria-labelledby="limitations-title"><p class="kicker">CLAIM BOUNDARIES</p><h2 id="limitations-title">Proof has <em>limits.</em></h2><p>A certificate establishes consistency under the protocol and supplied trust roots. It does not establish physical truth, fulfillment, or settlement.</p><details class="limitations-detail"><summary>What CLEAR does not claim <span aria-hidden="true">+</span></summary><p>General strategy-proofness · general truthfulness · general incentive compatibility · collusion-proof · Sybil-proof · fraud-proof · formal verification · ZK · blockchain · exactly-once network delivery · transcript completeness · proof of inventory · proof of shipment · physical fulfillment · settlement from transfer creation · unsupported refunds/reversals · unsupported live capture · real-money movement.</p></details></section>
     </main>
-    <footer data-app-view="evidence" hidden><div class="footer-top"><a class="wordmark" href="#top" aria-label="Back to top">clear.</a><p>Clarity is the<br />whole point.</p><a class="back-top" href="#top" aria-label="Back to top">↑</a></div><div class="footer-bottom"><span>PROOF-CARRYING MARKET INFRASTRUCTURE</span><span>NO VALID CERTIFICATE = NO MONEY ACTION</span></div></footer>
+    <footer class="workspace-footer evidence-footer" data-app-view="evidence" hidden>
+      <span>SUPPORTING MATERIAL · CLEAR</span>
+      <a href="#clearing">Return to Clearing <span aria-hidden="true">↗</span></a>
+    </footer>
     <noscript><p class="noscript-note">Enable JavaScript to run the interactive demo. The architecture and evidence notes remain available below.</p></noscript>
     <script src="/app.js" defer></script>
     <script src="/product_app.js" defer></script>

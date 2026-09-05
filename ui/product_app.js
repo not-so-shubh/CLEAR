@@ -6,6 +6,7 @@
   const evidenceNav = document.querySelector("[data-evidence-nav]");
   const menuToggle = document.querySelector(".menu-toggle");
   const skipLink = document.querySelector(".skip-link");
+  const wordmark = document.querySelector(".wordmark");
   const form = document.querySelector("#buyer-draft-form");
 
   if (!(form instanceof HTMLFormElement)) return;
@@ -81,11 +82,30 @@
     if (target) target.textContent = String(value);
   };
 
+  const formatInrFromPaise = (paise) => {
+    if (!Number.isSafeInteger(paise)) return "—";
+    const absolutePaise = Math.abs(paise);
+    const rupees = Math.floor(absolutePaise / 100).toLocaleString("en-IN");
+    const remainder = String(absolutePaise % 100).padStart(2, "0");
+    return `${paise < 0 ? "-" : ""}₹${rupees}.${remainder}`;
+  };
+
   const viewFromHash = () => {
     if (["#buyer", "#buyer-workspace"].includes(window.location.hash)) return "buyer";
     if (["#merchant", "#merchant-workspace"].includes(window.location.hash)) return "merchant";
     if (["#clearing", "#market-clearing"].includes(window.location.hash)) return "clearing";
-    if (["#evidence", "#top", "#demo", "#supporting", "#architecture"].includes(window.location.hash)) {
+    if (
+      [
+        "#evidence",
+        "#top",
+        "#current-runtime-proof",
+        "#historical-evidence",
+        "#controlled-demonstrations",
+        "#demo",
+        "#authority-demo-result",
+        "#limitations",
+      ].includes(window.location.hash)
+    ) {
       return "evidence";
     }
     return null;
@@ -102,23 +122,25 @@
     viewButtons.forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.viewTarget === selected));
     });
-    if (evidenceNav) evidenceNav.hidden = selected !== "evidence";
-    if (menuToggle) menuToggle.hidden = selected !== "evidence";
+    if (evidenceNav) evidenceNav.hidden = true;
+    if (menuToggle) menuToggle.hidden = true;
     if (skipLink instanceof HTMLAnchorElement) {
       skipLink.href =
         selected === "evidence"
-          ? "#demo"
+          ? "#evidence"
           : selected === "merchant"
             ? "#merchant-workspace"
             : selected === "clearing"
               ? "#clearing-workspace"
               : "#buyer-workspace";
-      skipLink.textContent = selected === "evidence" ? "Skip to demo" : "Skip to workspace";
+      skipLink.textContent = selected === "evidence" ? "Skip to dossier" : "Skip to workspace";
     }
-    try {
-      window.localStorage.setItem("clear-product-view", selected);
-    } catch (_error) {
-      // View selection remains functional when storage is unavailable.
+    if (["buyer", "merchant", "clearing"].includes(selected)) {
+      try {
+        window.localStorage.setItem("clear-product-view", selected);
+      } catch (_error) {
+        // View selection remains functional when storage is unavailable.
+      }
     }
     const selectedHash = `#${selected}`;
     if (!preserveHash && window.location.hash !== selectedHash) {
@@ -130,30 +152,74 @@
     }
   };
 
+  const primaryWorkspaceViews = new Set(["buyer", "merchant", "clearing"]);
+  const primaryWorkspaceScrollPositions = new Map();
+
+  const rememberCurrentPrimaryScroll = () => {
+    const currentView = document.body.dataset.view;
+    if (primaryWorkspaceViews.has(currentView)) {
+      primaryWorkspaceScrollPositions.set(currentView, window.scrollY);
+    }
+  };
+
+  const restorePrimaryWorkspaceScroll = (view, { forceTop = false } = {}) => {
+    if (!primaryWorkspaceViews.has(view)) return;
+    const rememberedPosition = forceTop
+      ? 0
+      : (primaryWorkspaceScrollPositions.get(view) ?? 0);
+    if (forceTop) primaryWorkspaceScrollPositions.set(view, 0);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: rememberedPosition, left: 0, behavior: "auto" });
+    });
+  };
+
+  const selectPrimaryWorkspace = (view, { forceTop = false } = {}) => {
+    if (!primaryWorkspaceViews.has(view)) return;
+    rememberCurrentPrimaryScroll();
+    setView(view, { hashMode: "push" });
+    restorePrimaryWorkspaceScroll(view, { forceTop });
+    reconcileActiveWorkspace(view);
+  };
+
   viewButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const selected = button.dataset.viewTarget;
-      setView(selected, { hashMode: "push" });
-      reconcileActiveWorkspace(selected);
+      selectPrimaryWorkspace(button.dataset.viewTarget);
     });
   });
 
-  const initialView = (() => {
+  if (wordmark instanceof HTMLAnchorElement) {
+    wordmark.addEventListener("click", (event) => {
+      event.preventDefault();
+      selectPrimaryWorkspace("buyer", { forceTop: true });
+    });
+  }
+
+  const restoredWorkspaceView = () => {
     try {
-      return window.localStorage.getItem("clear-product-view");
+      const storedView = window.localStorage.getItem("clear-product-view");
+      return ["merchant", "clearing"].includes(storedView) ? storedView : "buyer";
     } catch (_error) {
-      return null;
+      return "buyer";
     }
-  })();
+  };
   const initialHashView = viewFromHash();
-  setView(initialHashView || (["merchant", "clearing", "evidence"].includes(initialView) ? initialView : "buyer"), {
+  const initialSelectedView = initialHashView || restoredWorkspaceView();
+  setView(initialSelectedView, {
     preserveHash: initialHashView !== null,
   });
+  if (initialSelectedView !== "evidence") {
+    restorePrimaryWorkspaceScroll(initialSelectedView);
+  }
 
   const routeFromHash = () => {
     const hashView = viewFromHash();
-    const selected = hashView || document.body.dataset.view;
+    const selected = hashView || restoredWorkspaceView();
+    const currentView = document.body.dataset.view;
+    if (currentView !== selected) rememberCurrentPrimaryScroll();
     setView(selected, { preserveHash: hashView !== null });
+    if (currentView !== selected && selected !== "evidence") {
+      restorePrimaryWorkspaceScroll(selected);
+    }
     reconcileActiveWorkspace(selected);
   };
   window.addEventListener("hashchange", routeFromHash);
@@ -465,7 +531,10 @@
     setMerchantText("product-name", merchant.product_display_name);
     setMerchantText("merchant-sku", merchant.merchant_sku);
     setMerchantText("inventory", merchant.inventory_quantity);
-    setMerchantText("minimum-price", merchant.minimum_allowed_unit_price_paise);
+    setMerchantText(
+      "minimum-price",
+      formatInrFromPaise(merchant.minimum_allowed_unit_price_paise),
+    );
     setMerchantText("maximum-quantity", merchant.max_quantity_per_offer);
     renderMerchantAttributes(merchant.attributes);
     if (merchantProfile) merchantProfile.hidden = false;
@@ -503,7 +572,10 @@
         const term = document.createElement("dt");
         const detail = document.createElement("dd");
         term.textContent = label;
-        detail.textContent = String(line[field]);
+        detail.textContent =
+          field === "proposed_unit_price_paise"
+            ? formatInrFromPaise(line[field])
+            : String(line[field]);
         fact.append(term, detail);
         item.append(fact);
       });
@@ -570,7 +642,7 @@
       renderMerchantProposalLines(lines, [
         ["SKU ID", "sku_id"],
         ["PROPOSED QUANTITY", "proposed_quantity"],
-        ["PROPOSED UNIT PRICE · PAISE", "proposed_unit_price_paise"],
+        ["PROPOSED UNIT PRICE", "proposed_unit_price_paise"],
       ]);
       if (submitMerchantProposal instanceof HTMLButtonElement) {
         submitMerchantProposal.hidden = false;
@@ -587,7 +659,7 @@
       renderMerchantProposalLines(safeProposal.offer ? [safeProposal.offer] : [], [
         ["OFFER ID", "offer_id"],
         ["QUANTITY", "proposed_quantity"],
-        ["UNIT PRICE · PAISE", "proposed_unit_price_paise"],
+        ["UNIT PRICE", "proposed_unit_price_paise"],
         ["RECEIVED", "received_at"],
       ]);
       return;
@@ -604,7 +676,7 @@
     setMerchantMarketText("requested-quantity", market.requested_quantity);
     setMerchantMarketText("minimum-quantity", market.minimum_acceptable_quantity);
     setMerchantMarketText("max-suppliers", market.max_winners);
-    setMerchantMarketText("budget", market.max_total_payment_paise);
+    setMerchantMarketText("budget", formatInrFromPaise(market.max_total_payment_paise));
     renderRuleList(
       '[data-merchant-market-field="hard-rules"]',
       market.hard_constraints,
@@ -895,7 +967,7 @@
         ["MERCHANT ID", offer.merchant_id],
         ["SKU ID", offer.sku_id],
         ["QUANTITY", offer.submitted_quantity],
-        ["UNIT PRICE", `${String(offer.unit_price_paise)} PAISE`],
+        ["UNIT PRICE", formatInrFromPaise(offer.unit_price_paise)],
         ["RECEIVED", offer.received_at],
       ].forEach(([label, value]) => {
         const fact = document.createElement("div");
@@ -1003,6 +1075,7 @@
     setRuntimeRazorpayText("provider-order-id", "—");
     setRuntimeRazorpayText("execution-id", "—");
     setRuntimeRazorpayText("order-amount", "—");
+    setRuntimeRazorpayText("order-amount-raw", "—");
     setRuntimeRazorpayText("receipt", "—");
     if (runtimeRazorpayStatus) {
       runtimeRazorpayStatus.textContent = "No Razorpay order action has been requested.";
@@ -1063,8 +1136,8 @@
         ["OFFER ID", line.offer_id],
         ["SKU ID", line.sku_id],
         ["ALLOCATED", line.allocated_quantity],
-        ["UNIT PAYMENT · PAISE", line.unit_payment_paise],
-        ["LINE PAYMENT · PAISE", line.line_payment_paise],
+        ["UNIT PAYMENT", formatInrFromPaise(line.unit_payment_paise)],
+        ["LINE PAYMENT", formatInrFromPaise(line.line_payment_paise)],
       ].forEach(([label, value]) => facts.append(runtimeFact(label, value)));
       card.append(heading, facts);
       runtimeCertificateLines.append(card);
@@ -1092,7 +1165,7 @@
       [
         ["MERCHANT ID", line.merchant_id],
         ["ALLOCATED", line.allocated_quantity],
-        ["TRANSFER · PAISE", line.transfer_amount_paise],
+        ["TRANSFER", formatInrFromPaise(line.transfer_amount_paise)],
       ].forEach(([label, value]) => facts.append(runtimeFact(label, value)));
       card.append(heading, facts);
       runtimeTransferLines.append(card);
@@ -1142,7 +1215,11 @@
     setRuntimeRazorpayText("resolution", "ORDER REFERENCE PERSISTED");
     setRuntimeRazorpayText("provider-order-id", providerState.provider_order_id);
     setRuntimeRazorpayText("execution-id", providerState.execution_id);
-    setRuntimeRazorpayText("order-amount", providerState.order_amount_paise);
+    setRuntimeRazorpayText("order-amount", formatInrFromPaise(providerState.order_amount_paise));
+    setRuntimeRazorpayText(
+      "order-amount-raw",
+      `${providerState.order_amount_paise} paise · INR`,
+    );
     setRuntimeRazorpayText("receipt", providerState.receipt);
     if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = false;
     if (runtimeRazorpayButton instanceof HTMLButtonElement) {
@@ -1216,7 +1293,7 @@
         plan.execution_request_fingerprint_sha256,
       );
       setRuntimeExecutionText("idempotency-key", plan.idempotency_key);
-      setRuntimeExecutionText("order-amount", plan.order_amount_paise);
+      setRuntimeExecutionText("order-amount", formatInrFromPaise(plan.order_amount_paise));
       renderRuntimeTransferLines(plan.transfer_obligations);
       if (runtimeExecutionPlan) runtimeExecutionPlan.hidden = false;
       if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
@@ -1321,7 +1398,7 @@
     setClearingText("requested-quantity", market.requested_quantity);
     setClearingText("minimum-quantity", market.minimum_acceptable_quantity);
     setClearingText("max-suppliers", market.max_winners);
-    setClearingText("budget", market.max_total_payment_paise);
+    setClearingText("budget", formatInrFromPaise(market.max_total_payment_paise));
     renderRuleList('[data-clearing-field="hard-rules"]', market.hard_constraints);
     renderRuleList('[data-clearing-field="soft-rules"]', market.soft_preferences);
     renderClearingOffers(payload.submitted_offers);
@@ -1354,7 +1431,7 @@
       setClearingResultText("requested-quantity", result.requested_quantity);
       setClearingResultText("fulfilled-quantity", result.fulfilled_quantity);
       setClearingResultText("winner-count", result.winner_count);
-      setClearingResultText("total", result.total_payment_paise);
+      setClearingResultText("total", formatInrFromPaise(result.total_payment_paise));
       renderClearingWinners(result.winners);
       if (clearingActionStatus) {
         clearingActionStatus.textContent =
@@ -1782,7 +1859,8 @@
         setRuntimeRazorpayText("resolution", payload.resolution);
         setRuntimeRazorpayText("provider-order-id", payload.provider_order_id);
         setRuntimeRazorpayText("execution-id", payload.execution_id);
-        setRuntimeRazorpayText("order-amount", payload.order_amount_paise);
+        setRuntimeRazorpayText("order-amount", formatInrFromPaise(payload.order_amount_paise));
+        setRuntimeRazorpayText("order-amount-raw", `${payload.order_amount_paise} paise · INR`);
         setRuntimeRazorpayText("receipt", payload.receipt);
         if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = false;
         const label = runtimeRazorpayButton.querySelector("span");
@@ -1912,7 +1990,10 @@
     setText('[data-buyer-field="requested-quantity"]', interpreted.requested_quantity);
     setText('[data-buyer-field="minimum-quantity"]', interpreted.minimum_acceptable_quantity);
     setText('[data-buyer-field="max-suppliers"]', interpreted.max_winners);
-    setText('[data-buyer-field="budget"]', interpreted.max_total_payment_paise);
+    setText(
+      '[data-buyer-field="budget"]',
+      formatInrFromPaise(interpreted.max_total_payment_paise),
+    );
     setText('[data-buyer-field="provider-name"]', payload.provider_name);
     setText('[data-buyer-field="model"]', payload.model);
     renderRuleList('[data-buyer-field="hard-rules"]', interpreted.hard_constraints);

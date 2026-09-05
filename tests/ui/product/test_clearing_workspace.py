@@ -618,9 +618,9 @@ def test_concurrent_close_has_one_result_and_reconciles_through_snapshot(
 def test_clearing_client_is_get_restored_and_close_body_has_no_authority() -> None:
     markup = Path("ui/index.html").read_text(encoding="utf-8")
     client = Path("ui/product_app.js").read_text(encoding="utf-8")
-    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split('<main id="top"', 1)[
-        0
-    ]
+    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split(
+        '<main class="evidence-shell"', 1
+    )[0]
     close_block = client.split('closeClearingMarket.addEventListener("click"', 1)[1].split(
         "if (refreshClearingMarkets", 1
     )[0]
@@ -631,7 +631,8 @@ def test_clearing_client_is_get_restored_and_close_body_has_no_authority() -> No
     assert 'data-view-target="buyer"' in markup
     assert 'data-view-target="merchant"' in markup
     assert 'data-view-target="clearing"' in markup
-    assert 'data-view-target="evidence"' in markup
+    assert 'data-view-target="evidence"' not in markup
+    assert 'href="#evidence">Evidence dossier' in clearing_markup
     assert '["#clearing", "#market-clearing"]' in client
     assert 'window.addEventListener("hashchange", routeFromHash)' in client
     assert 'window.addEventListener("popstate", routeFromHash)' in client
@@ -710,8 +711,11 @@ def test_client_reconciles_closed_market_on_workspace_activation() -> None:
         'setStage("draft");', 1
     )[0]
     view_button_block = client.split('button.addEventListener("click", () => {', 1)[1].split(
-        "const initialView", 1
+        "const restoredWorkspaceView", 1
     )[0]
+    primary_selection_block = client.split(
+        "const selectPrimaryWorkspace = (view, { forceTop = false } = {}) => {", 1
+    )[1].split("viewButtons.forEach", 1)[0]
     route_block = client.split("const routeFromHash = () => {", 1)[1].split(
         'window.addEventListener("hashchange"', 1
     )[0]
@@ -728,7 +732,8 @@ def test_client_reconciles_closed_market_on_workspace_activation() -> None:
         "if (freezeButton instanceof HTMLButtonElement)", 1
     )[0]
 
-    assert "reconcileActiveWorkspace(selected);" in view_button_block
+    assert "selectPrimaryWorkspace(button.dataset.viewTarget);" in view_button_block
+    assert "reconcileActiveWorkspace(view);" in primary_selection_block
     assert "reconcileActiveWorkspace(selected);" in route_block
     assert "loadMerchantInbox(currentMerchantId);" in activation_block
     assert "restoreFrozenMarket();" in activation_block
@@ -744,3 +749,67 @@ def test_client_reconciles_closed_market_on_workspace_activation() -> None:
     assert 'payload.market_state === "CLOSED"' in frozen_block
     assert "The persisted runtime market is closed." in frozen_block
     assert "is now open" not in frozen_block
+
+
+def test_clearing_money_display_preserves_the_structural_authority_layout() -> None:
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
+    styles = Path("ui/product.css").read_text(encoding="utf-8")
+    client = Path("ui/product_app.js").read_text(encoding="utf-8")
+    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split(
+        '<main class="evidence-shell"', 1
+    )[0]
+
+    assert 'class="clearing-snapshot" id="clearing-snapshot"' in clearing_markup
+    assert clearing_markup.index('class="clearing-work-grid"') < clearing_markup.index(
+        'class="clearing-snapshot" id="clearing-snapshot"'
+    )
+    assert "grid-template-columns: 42px minmax(0, 1fr) max-content;" in styles
+    assert ".runtime-authority-body" in styles
+    assert "overflow-wrap: anywhere;" in styles
+    assert "Test a tampered copy" in clearing_markup
+    assert "Authorize provider-neutral execution" in clearing_markup
+    assert "Create Razorpay Test Mode order" in clearing_markup
+    assert 'data-razorpay-field="order-amount-raw"' in clearing_markup
+    assert '["ALLOCATED", line.allocated_quantity]' in client
+    assert '["TRANSFER", formatInrFromPaise(line.transfer_amount_paise)]' in client
+    assert '["UNIT PRICE", formatInrFromPaise(offer.unit_price_paise)]' in client
+    assert '["UNIT PAYMENT", formatInrFromPaise(line.unit_payment_paise)]' in client
+    assert '["LINE PAYMENT", formatInrFromPaise(line.line_payment_paise)]' in client
+    assert (
+        'setRuntimeExecutionText("order-amount", formatInrFromPaise(plan.order_amount_paise))'
+        in client
+    )
+    assert (
+        'setRuntimeRazorpayText("order-amount", '
+        "formatInrFromPaise(providerState.order_amount_paise))" in client
+    )
+    assert (
+        'setRuntimeRazorpayText("order-amount", '
+        "formatInrFromPaise(payload.order_amount_paise))" in client
+    )
+
+
+def test_clearing_ends_with_a_compact_proof_and_limitations_summary() -> None:
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
+    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split(
+        '<main class="evidence-shell"', 1
+    )[0]
+
+    assert "PROOF &amp; LIMITATIONS" in clearing_markup
+    assert clearing_markup.index("Evidence dossier") < clearing_markup.index(
+        "PROOF &amp; LIMITATIONS"
+    )
+    for proven_boundary in (
+        "✓</span> Deterministic allocation",
+        "✓</span> Replay-verifiable AllocationCertificateV2",
+        "✓</span> Independent verifier",
+        "✓</span> Money Governor authorization",
+        "✓</span> Provider-neutral ExecutionPlanV1",
+        "✓</span> Razorpay Test Mode boundary",
+    ):
+        assert proven_boundary in clearing_markup
+    assert ">NOT DEMONSTRATED</span>" in clearing_markup
+    assert (
+        "Payment capture · settlement · physical fulfillment · real-money movement · "
+        "refunds/reversals" in clearing_markup
+    )

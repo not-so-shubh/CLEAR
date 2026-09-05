@@ -855,7 +855,9 @@ def test_merchant_workspace_client_restores_from_get_and_mutates_only_on_explici
     assert 'data-app-view="evidence"' in markup
     assert '["#merchant", "#merchant-workspace"]' in client
     assert '["#buyer", "#buyer-workspace"]' in client
-    assert '["#evidence", "#top", "#demo", "#supporting", "#architecture"]' in client
+    assert '"#evidence"' in client
+    assert '"#historical-evidence"' in client
+    assert '"#controlled-demonstrations"' in client
     assert 'window.addEventListener("hashchange", routeFromHash)' in client
     assert 'window.addEventListener("popstate", routeFromHash)' in client
 
@@ -893,3 +895,8 @@ def test_merchant_workspace_client_restores_from_get_and_mutates_only_on_explici
         )
         is None
     )
+    assert "formatInrFromPaise(merchant.minimum_allowed_unit_price_paise)" in client
+    assert "formatInrFromPaise(market.max_total_payment_paise)" in client
+    assert 'field === "proposed_unit_price_paise"' in client
+    assert '["PROPOSED UNIT PRICE", "proposed_unit_price_paise"]' in client
+    assert '["UNIT PRICE", "proposed_unit_price_paise"]' in client

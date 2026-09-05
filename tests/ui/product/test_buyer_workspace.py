@@ -885,26 +885,208 @@ def test_buyer_client_has_no_runtime_markup_or_hard_coded_commercial_authority()
     assert "replaceChildren" in source
 
 
-def test_buyer_and_existing_evidence_views_share_the_working_shell() -> None:
+def test_primary_navigation_and_evidence_dossier_share_the_working_shell() -> None:
     markup = Path("ui/index.html").read_text(encoding="utf-8")
     client = Path("ui/product_app.js").read_text(encoding="utf-8")
 
     assert 'data-view-target="buyer"' in markup
-    assert 'data-view-target="evidence"' in markup
+    assert 'data-view-target="merchant"' in markup
+    assert 'data-view-target="clearing"' in markup
+    assert 'data-view-target="evidence"' not in markup
     assert 'id="buyer-workspace"' in markup
     assert 'id="buyer-draft-form"' in markup
     assert 'id="freeze-buyer-policy"' in markup
-    assert '<main id="top" data-app-view="evidence" hidden>' in markup
+    assert '<main class="evidence-shell" id="top" data-app-view="evidence" hidden>' in markup
+    assert "CLEAR · EVIDENCE DOSSIER" in markup
+    assert 'href="#evidence">Evidence dossier' in markup
     assert 'id="run-demo"' in markup
     assert 'id="run-live-evidence"' in markup
     assert 'id="run-merchant-ai"' in markup
     assert 'id="run-explanation-ai"' in markup
     assert '["#buyer", "#buyer-workspace"]' in client
-    assert '["#evidence", "#top", "#demo", "#supporting", "#architecture"]' in client
+    assert '"#current-runtime-proof"' in client
+    assert '"#historical-evidence"' in client
+    assert '"#controlled-demonstrations"' in client
+    assert '"#limitations"' in client
     assert "preserveHash" in client
     assert 'hashMode: "push"' in client
     assert 'window.addEventListener("hashchange", routeFromHash)' in client
     assert 'window.addEventListener("popstate", routeFromHash)' in client
+
+
+def test_primary_workspaces_keep_independent_session_scroll_memory() -> None:
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
+    client = Path("ui/product_app.js").read_text(encoding="utf-8")
+    memory_block = client.split(
+        'const primaryWorkspaceViews = new Set(["buyer", "merchant", "clearing"]);', 1
+    )[1].split("viewButtons.forEach", 1)[0]
+    selection_block = client.split(
+        "const selectPrimaryWorkspace = (view, { forceTop = false } = {}) => {", 1
+    )[1].split("viewButtons.forEach", 1)[0]
+    button_block = client.split("viewButtons.forEach", 1)[1].split(
+        "if (wordmark instanceof HTMLAnchorElement)", 1
+    )[0]
+    wordmark_block = client.split("if (wordmark instanceof HTMLAnchorElement)", 1)[1].split(
+        "const restoredWorkspaceView", 1
+    )[0]
+    route_block = client.split("const routeFromHash = () => {", 1)[1].split(
+        'window.addEventListener("hashchange"', 1
+    )[0]
+
+    assert "const primaryWorkspaceScrollPositions = new Map();" in memory_block
+    assert "primaryWorkspaceScrollPositions.set(currentView, window.scrollY);" in memory_block
+    assert "primaryWorkspaceScrollPositions.get(view) ?? 0" in memory_block
+    assert "localStorage" not in memory_block
+    assert "sessionStorage" not in memory_block
+    assert 'window.scrollTo({ top: rememberedPosition, left: 0, behavior: "auto" });' in client
+    assert selection_block.index("rememberCurrentPrimaryScroll();") < selection_block.index(
+        'setView(view, { hashMode: "push" });'
+    )
+    assert selection_block.index('setView(view, { hashMode: "push" });') < (
+        selection_block.index("restorePrimaryWorkspaceScroll(view, { forceTop });")
+    )
+    assert selection_block.index(
+        "restorePrimaryWorkspaceScroll(view, { forceTop });"
+    ) < selection_block.index("reconcileActiveWorkspace(view);")
+    assert "selectPrimaryWorkspace(button.dataset.viewTarget);" in button_block
+    assert "event.preventDefault();" in wordmark_block
+    assert 'selectPrimaryWorkspace("buyer", { forceTop: true });' in wordmark_block
+    assert "if (forceTop) primaryWorkspaceScrollPositions.set(view, 0);" in memory_block
+    assert 'href="#buyer"' in markup
+    assert 'if (currentView !== selected && selected !== "evidence") {' in route_block
+    assert "primaryWorkspaceViews" in memory_block
+    assert '"evidence"' not in memory_block
+    for evidence_hash in (
+        '"#evidence"',
+        '"#current-runtime-proof"',
+        '"#historical-evidence"',
+        '"#controlled-demonstrations"',
+        '"#limitations"',
+    ):
+        assert evidence_hash in client
+    assert "innerHTML" not in client
+
+
+def test_stale_evidence_view_preference_falls_back_to_buyer() -> None:
+    client = Path("ui/product_app.js").read_text(encoding="utf-8")
+    persistence_block = client.split(
+        'if (["buyer", "merchant", "clearing"].includes(selected)) {', 1
+    )[1].split("const selectedHash", 1)[0]
+    restoration_block = client.split("const restoredWorkspaceView = () => {", 1)[1].split(
+        "const initialHashView", 1
+    )[0]
+    route_block = client.split("const routeFromHash = () => {", 1)[1].split(
+        'window.addEventListener("hashchange"', 1
+    )[0]
+
+    assert 'localStorage.setItem("clear-product-view", selected)' in persistence_block
+    assert '"evidence"' not in persistence_block
+    assert (
+        'return ["merchant", "clearing"].includes(storedView) ? storedView : "buyer";'
+        in restoration_block
+    )
+    assert '"evidence"' not in restoration_block
+    assert "const initialSelectedView = initialHashView || restoredWorkspaceView();" in client
+    assert "setView(initialSelectedView" in client
+    assert "const selected = hashView || restoredWorkspaceView();" in route_block
+    assert '"#evidence"' in client
+
+
+def test_product_money_is_formatted_as_inr_only_at_the_presentation_boundary() -> None:
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
+    client = Path("ui/product_app.js").read_text(encoding="utf-8")
+    formatter = client.split("const formatInrFromPaise = (paise) => {", 1)[1].split(
+        "const viewFromHash", 1
+    )[0]
+
+    assert "Number.isSafeInteger(paise)" in formatter
+    assert "Math.floor(absolutePaise / 100)" in formatter
+    assert 'toLocaleString("en-IN")' in formatter
+    assert 'padStart(2, "0")' in formatter
+    assert "₹" in formatter
+    assert "innerHTML" not in client
+    for presentation_call in (
+        "formatInrFromPaise(interpreted.max_total_payment_paise)",
+        "formatInrFromPaise(merchant.minimum_allowed_unit_price_paise)",
+        "formatInrFromPaise(market.max_total_payment_paise)",
+        "formatInrFromPaise(offer.unit_price_paise)",
+        "formatInrFromPaise(line.unit_payment_paise)",
+        "formatInrFromPaise(line.line_payment_paise)",
+        "formatInrFromPaise(result.total_payment_paise)",
+        "formatInrFromPaise(plan.order_amount_paise)",
+        "formatInrFromPaise(line.transfer_amount_paise)",
+        "formatInrFromPaise(providerState.order_amount_paise)",
+        "formatInrFromPaise(payload.order_amount_paise)",
+    ):
+        assert presentation_call in client
+    for legacy_markup in (
+        'data-buyer-field="budget">—</strong><small>PAISE',
+        'data-merchant-market-field="budget">—</strong><small>PAISE',
+        'data-clearing-field="budget">—</strong><small>PAISE',
+        'data-clearing-result-field="total">—</strong><small>PAISE',
+        'data-execution-field="order-amount">—</span> PAISE',
+    ):
+        assert legacy_markup not in markup
+
+
+def test_evidence_dossier_preserves_controls_truth_taxonomy_and_limits() -> None:
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
+    evidence_markup = markup.split('<main class="evidence-shell"', 1)[1].split(
+        '<footer class="workspace-footer evidence-footer"', 1
+    )[0]
+    taxonomy = set(
+        re.findall(
+            r'class="evidence-taxonomy[^\"]*"(?: data-field="[^\"]+")?>([^<]+)</span>',
+            evidence_markup,
+        )
+    )
+    controlled_heading = evidence_markup.split('id="controlled-demonstrations"', 1)[1].split(
+        '<div class="demonstration-grid">', 1
+    )[0]
+    authority_card = evidence_markup.split('class="demonstration-card authority-demo-card"', 1)[
+        1
+    ].split('class="demonstration-card tamper-demo-card"', 1)[0]
+    tamper_card = evidence_markup.split('class="demonstration-card tamper-demo-card"', 1)[1].split(
+        'class="demonstration-card ai-live-task"', 1
+    )[0]
+
+    assert taxonomy == {
+        "REAL LOCAL PRODUCTION LOGIC",
+        "DETERMINISTIC FIXTURE",
+        "FAKE/CONTROLLED EXTERNAL TRANSPORT",
+        "HISTORICAL LIVE EVIDENCE ONLY",
+        "NOT DEMONSTRATED",
+    }
+    assert "DETERMINISTIC FIXTURE" not in controlled_heading
+    assert "DETERMINISTIC FIXTURE" in authority_card
+    assert "DETERMINISTIC FIXTURE" in tamper_card
+    assert (
+        "CLEAR\u2019s Governor-gated Razorpay order path was exercised against real Razorpay Test "
+        "Mode: order creation succeeded and a second identical call resolved the existing "
+        "provider order through provider-backed retrieval." in evidence_markup
+    )
+    assert (
+        "This does not prove capture, customer payment, live webhook, transfer creation, "
+        "settlement, refunds, fulfillment, real-money movement, exactly-once delivery, or "
+        "full-system live execution." in evidence_markup
+    )
+    for control_id in (
+        "run-demo",
+        "reveal-tamper",
+        "run-merchant-ai",
+        "run-explanation-ai",
+        "run-live-evidence",
+    ):
+        assert f'id="{control_id}"' in evidence_markup
+    for limitation in (
+        "Payment capture",
+        "Transfer creation or settlement",
+        "Physical fulfillment",
+        "Refunds or reversals",
+        "Real-money movement",
+        "Transcript completeness",
+    ):
+        assert limitation in evidence_markup
 
 
 def test_frozen_restore_and_new_draft_have_truthful_control_states() -> None:
