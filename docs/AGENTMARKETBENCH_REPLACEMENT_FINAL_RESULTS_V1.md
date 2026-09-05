@@ -19,7 +19,7 @@ All numbers below are read from the verified stored `summary.json`, `report.md`,
 - Selection anchor commit: `a4fc224ba9b10b518753d05237ab7d56d737943b`
 - Selection SHA-256: `babe2f63fe83fa6a67a63d0fc02c16a2a4cfcfc2fe04e4aa94a0e0af29b655f3`
 - Seed-sequence SHA-256: `9f255e0668f40a0b61a0ec79b5c25fac5682b5e374ee19cf854615c68187c422`
-- Manifest SHA-256: `27c8cc724634cae4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
+- Manifest SHA-256: `27c8cc724634caec4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
 - Semantic root SHA-256: `168eb51dc9c2324db3e9b571bc6c2cefa4211e53ed3b56f4bf5d594713018ebb`
 - Timing root SHA-256: `6e727815537b889ca84587ac143c931d2170ea93ce0ee2c95af7da454afeab1f`
 - Evidence root SHA-256: `9b9d3fd24d0efe0fed26cdaf63fc5ff6ff4b843ad8061d70c09232c021500c51`

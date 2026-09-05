@@ -39,7 +39,8 @@ The reviewed deployment supports this judge flow:
 1. Enter buyer intent and ask the externally configured OpenAI-compatible provider for an advisory
    candidate.
 2. Inspect the candidate and deterministically freeze it as `BuyerPolicyV2`.
-3. Create a merchant with trusted catalog, inventory, and economic inputs.
+3. Open an already-eligible merchant. To use a new merchant, create it before starting the buyer
+   draft so it can be included in the eligible merchant set.
 4. Ask AI for an advisory merchant proposal, then explicitly submit it so the server
    deterministically constructs, signs, and authenticates the offer.
 5. Close the `OPEN` market and inspect the deterministic multiwinner allocation and
@@ -193,7 +194,7 @@ One flow can combine several classes. Code existence is not live evidence, and
 The judge-facing comparison is the
 [AgentMarketBench replacement final evaluation](docs/AGENTMARKETBENCH_REPLACEMENT_FINAL_RESULTS_V1.md).
 It evaluated source commit `6eadd5b6eb737649ec35747a73d90b69c403e24f` on 10,000 final cases. Its
-manifest SHA-256 is `27c8cc724634cae4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`,
+manifest SHA-256 is `27c8cc724634caec4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`,
 and its evidence-root SHA-256 is
 `9b9d3fd24d0efe0fed26cdaf63fc5ff6ff4b843ad8061d70c09232c021500c51`.
 
@@ -211,8 +212,8 @@ its broader architecture adds authenticated offers, deterministic multiwinner al
 replay-verifiable allocation certificates, and the Money Governor boundary.
 
 Measured limitations remain visible: 47 successful manipulation cases out of 1,310 applicable
-observations, and a mean hard-constraint-violation rate of 1/125 (`0.008`). The benchmark is not a
-universal ranking of market mechanisms or AI models.
+observations, and a mean latent hard-violating allocated-unit count per case of 1/125 (`0.008`). The
+benchmark is not a universal ranking of market mechanisms or AI models.
 
 The replacement holdout is permanently closed and must not be rerun. The linked results document
 contains the exact metrics, intervals, provenance, and interpretation limits.

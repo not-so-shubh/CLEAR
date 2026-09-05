@@ -30,7 +30,7 @@ The immutable stored output is
 `benchmarks/agentmarketbench_v1/replacement_final_holdout_v1/`; its manifest
 and evidence commitments are:
 
-- manifest SHA-256: `27c8cc724634cae4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
+- manifest SHA-256: `27c8cc724634caec4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
 - semantic root SHA-256: `168eb51dc9c2324db3e9b571bc6c2cefa4211e53ed3b56f4bf5d594713018ebb`
 - timing root SHA-256: `6e727815537b889ca84587ac143c931d2170ea93ce0ee2c95af7da454afeab1f`
 - evidence root SHA-256: `9b9d3fd24d0efe0fed26cdaf63fc5ff6ff4b843ad8061d70c09232c021500c51`

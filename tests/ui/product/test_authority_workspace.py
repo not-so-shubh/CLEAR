@@ -904,7 +904,7 @@ def test_frontend_authority_surface_is_server_read_only_until_explicit_actions()
     assert "Money Governor" in markup
     assert "NO VALID CERTIFICATE = NO MONEY ACTION" in markup
     assert "INDEPENDENT REPLAY" in markup
-    assert "NO RAZORPAY ACTION YET" in markup
+    assert "EXECUTION AUTHORIZATION IS SEPARATE FROM PROVIDER ACTION." in markup
     assert 'class="runtime-fixture-badge">DETERMINISTIC FIXTURE' in markup
     assert "renderRuntimeHeadings" not in script
 

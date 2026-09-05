@@ -84,7 +84,7 @@ The final judge-facing comparator evidence is
 
 - Evaluated source commit: `6eadd5b6eb737649ec35747a73d90b69c403e24f`
 - Final cases: 10,000
-- Manifest SHA-256: `27c8cc724634cae4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
+- Manifest SHA-256: `27c8cc724634caec4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
 - Evidence root SHA-256: `9b9d3fd24d0efe0fed26cdaf63fc5ff6ff4b843ad8061d70c09232c021500c51`
 
 This replacement evaluation is permanently closed. **DO NOT RERUN IT.** The committed results

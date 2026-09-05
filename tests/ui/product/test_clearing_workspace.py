@@ -679,7 +679,7 @@ def test_clearing_client_is_get_restored_and_close_body_has_no_authority() -> No
     assert "AllocationCertificateV2" in clearing_markup
     assert "Money Governor" in clearing_markup
     assert "NO VALID CERTIFICATE = NO MONEY ACTION" in clearing_markup
-    assert "NO RAZORPAY ACTION YET." in clearing_markup
+    assert "EXECUTION AUTHORIZATION IS SEPARATE FROM PROVIDER ACTION." in clearing_markup
 
 
 def test_clearing_snapshot_404_releases_running_state() -> None:

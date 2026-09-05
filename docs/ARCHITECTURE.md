@@ -354,8 +354,8 @@ The stored result supports these narrow statements:
   equivalence.
 - The full-information oracle remains materially above CLEAR and is a latent upper bound, not a
   production competitor.
-- Manipulation succeeded in 47 of 1,310 applicable observations, and the mean hard-constraint
-  violation rate was 1/125 (`0.008`). These remain measured limitations.
+- Manipulation succeeded in 47 of 1,310 applicable observations, and the mean latent hard-violating
+  allocated-unit count per case was 1/125 (`0.008`). These remain measured limitations.
 
 Benchmark latency is environment-sensitive, and the holdout does not exercise the AI provider,
 certificate explanation, Money Governor, Razorpay adapter, recovery orchestration, settlement, or
