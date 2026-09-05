@@ -73,7 +73,7 @@ service.
 | V2 production allocation | Implemented and tested with deterministic OR-Tools CP-SAT. | Pure authoritative mechanism code decides allocation and payment fields from admitted offers. |
 | V2 certificate and independent verifier | Implemented and tested. | The verifier replays evidence and recomputes allocation with an independent reference oracle. |
 | Money Governor and SQLite financial ledger | Implemented and tested. | A verified certificate plus explicit financial authorization is required to reserve an execution and issue an immutable plan. |
-| Razorpay Test Mode boundary | Order, authenticated webhook, Route mapping, transfer, replay, reconciliation, recovery, and orchestration code is implemented and tested with controlled transports. Live Test Mode execution is not demonstrated. | Only a governor-approved plan may drive provider operations; authenticated observations return to deterministic state replay. |
+| Razorpay Test Mode boundary | Order, authenticated webhook, Route mapping, transfer, replay, reconciliation, recovery, and orchestration code is implemented and tested with controlled transports. One reviewed historical external Razorpay Test Mode order-provider exercise succeeded: order creation persisted a provider reference, and a second identical call resolved the existing provider order through provider-backed retrieval. Live payment capture, transfer, settlement, and real-money paths remain unexercised. | Only a governor-approved plan may drive provider operations; authenticated observations return to deterministic state replay. |
 | AgentMarketBench replacement final holdout | Stored 10,000-scenario evidence is committed and integrity-tested. | It is evaluation evidence for the defined distribution, not production telemetry or universal model/mechanism proof. |
 
 “OpenAI-compatible” describes the wire protocol. The one historical live buyer-intent exercise was
@@ -159,11 +159,15 @@ The Razorpay Test Mode integration includes:
 - deterministic payment-state replay; and
 - order recovery plus normal and graceful orchestration paths.
 
-These paths have automated tests, but no live Razorpay Test Mode transaction is demonstrated by
-the repository. Transfer creation is not settlement. Refunds, reversals, settlement processing,
-and physical fulfillment are not implemented. Ledger reservations, fingerprints, provider
-references, and reconciliation reduce duplicate effects, but CLEAR does not claim exactly-once
-delivery across an external network.
+These paths have automated tests with controlled transports. Separately, one reviewed historical
+external Razorpay Test Mode order-provider exercise succeeded: order creation persisted a provider
+reference, and a second identical call resolved the existing order through provider-backed retrieval.
+This evidence is limited to the order path and is not repository-level cryptographic proof of the
+historical run. It does not demonstrate payment capture, customer payment, Route transfer creation,
+settlement, refunds, reversals, disputes, physical fulfillment, or real-money movement. Transfer
+creation is not settlement. Refunds, reversals, settlement processing, and physical fulfillment are
+not implemented. Ledger reservations, fingerprints, provider references, and reconciliation reduce
+duplicate effects, but CLEAR does not claim exactly-once delivery across an external network.
 
 ## AgentMarketBench: what the stored evidence says
 
@@ -277,7 +281,8 @@ CLEAR currently does not provide:
 - proof that participant-signed claims are true in the physical world;
 - transcript completeness without an external trusted receipt/observation system;
 - fulfillment, shipping, disputes, refunds, reversals, or settlement processing;
-- live Razorpay Test Mode evidence or any live-money claim;
+- live payment-capture, transfer, settlement, refund/reversal, or real-money evidence; demonstrated
+  external Razorpay evidence is limited to the Test Mode order path;
 - exactly-once external delivery;
 - collusion or Sybil resistance;
 - formal verification, zero-knowledge proofs, or blockchain consensus; or

@@ -288,9 +288,13 @@ issuing another POST. Normal orchestration coordinates governor authorization, o
 state, Route mapping, and transfers. The graceful path converts recognized uncertainty into an
 explicit recovery disposition instead of treating ambiguity as success.
 
-The provider code and controlled-transport tests cover these behaviors. The repository contains
-no demonstrated live Razorpay Test Mode execution and no live transaction evidence. Refunds,
-reversals, settlement processing, disputes, and fulfillment are not implemented.
+The provider code and controlled-transport tests cover these behaviors. Separately, one reviewed
+historical external Razorpay Test Mode exercise ran the production order path: order creation
+succeeded, the provider reference was persisted, and a second identical call retrieved the existing
+order from the provider. This evidence is limited to that order path; it is not evidence that every
+Razorpay path ran live. That external exercise did not demonstrate payment capture, customer payment,
+Route transfer creation, settlement, refunds, reversals, disputes, fulfillment, or real-money movement.
+Refunds, reversals, settlement processing, disputes, and fulfillment are not implemented.
 
 ## 10. Failure and recovery semantics
 
@@ -361,7 +365,8 @@ not silently substituted for V2 behavior.
 - no trusted physical inventory or fulfillment oracle;
 - no external receipt system proving transcript completeness;
 - no refunds, reversals, settlement processor, disputes, or shipment workflow;
-- no live Razorpay Test Mode demonstration or live-money evidence;
+- no live payment-capture, transfer, settlement, refund/reversal, or real-money evidence; demonstrated
+  external Razorpay evidence is limited to the Test Mode order path;
 - no exactly-once guarantee across provider/network boundaries;
 - no collusion or Sybil resistance guarantee;
 - no formal verification, zero-knowledge proof, or blockchain layer; and
