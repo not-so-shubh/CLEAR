@@ -3,8 +3,6 @@
 
   const viewButtons = [...document.querySelectorAll("[data-view-target]")];
   const viewPanels = [...document.querySelectorAll("[data-app-view]")];
-  const evidenceNav = document.querySelector("[data-evidence-nav]");
-  const menuToggle = document.querySelector(".menu-toggle");
   const skipLink = document.querySelector(".skip-link");
   const wordmark = document.querySelector(".wordmark");
   const form = document.querySelector("#buyer-draft-form");
@@ -94,25 +92,11 @@
     if (["#buyer", "#buyer-workspace"].includes(window.location.hash)) return "buyer";
     if (["#merchant", "#merchant-workspace"].includes(window.location.hash)) return "merchant";
     if (["#clearing", "#market-clearing"].includes(window.location.hash)) return "clearing";
-    if (
-      [
-        "#evidence",
-        "#top",
-        "#current-runtime-proof",
-        "#historical-evidence",
-        "#controlled-demonstrations",
-        "#demo",
-        "#authority-demo-result",
-        "#limitations",
-      ].includes(window.location.hash)
-    ) {
-      return "evidence";
-    }
     return null;
   };
 
   const setView = (view, { hashMode = "replace", preserveHash = false } = {}) => {
-    const selected = ["buyer", "merchant", "clearing", "evidence"].includes(view)
+    const selected = ["buyer", "merchant", "clearing"].includes(view)
       ? view
       : "buyer";
     document.body.dataset.view = selected;
@@ -122,18 +106,14 @@
     viewButtons.forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.viewTarget === selected));
     });
-    if (evidenceNav) evidenceNav.hidden = true;
-    if (menuToggle) menuToggle.hidden = true;
     if (skipLink instanceof HTMLAnchorElement) {
       skipLink.href =
-        selected === "evidence"
-          ? "#evidence"
-          : selected === "merchant"
-            ? "#merchant-workspace"
-            : selected === "clearing"
-              ? "#clearing-workspace"
-              : "#buyer-workspace";
-      skipLink.textContent = selected === "evidence" ? "Skip to dossier" : "Skip to workspace";
+        selected === "merchant"
+          ? "#merchant-workspace"
+          : selected === "clearing"
+            ? "#clearing-workspace"
+            : "#buyer-workspace";
+      skipLink.textContent = "Skip to workspace";
     }
     if (["buyer", "merchant", "clearing"].includes(selected)) {
       try {
@@ -207,9 +187,7 @@
   setView(initialSelectedView, {
     preserveHash: initialHashView !== null,
   });
-  if (initialSelectedView !== "evidence") {
-    restorePrimaryWorkspaceScroll(initialSelectedView);
-  }
+  restorePrimaryWorkspaceScroll(initialSelectedView);
 
   const routeFromHash = () => {
     const hashView = viewFromHash();
@@ -217,9 +195,7 @@
     const currentView = document.body.dataset.view;
     if (currentView !== selected) rememberCurrentPrimaryScroll();
     setView(selected, { preserveHash: hashView !== null });
-    if (currentView !== selected && selected !== "evidence") {
-      restorePrimaryWorkspaceScroll(selected);
-    }
+    if (currentView !== selected) restorePrimaryWorkspaceScroll(selected);
     reconcileActiveWorkspace(selected);
   };
   window.addEventListener("hashchange", routeFromHash);

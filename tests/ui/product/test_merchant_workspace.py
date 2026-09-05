@@ -852,12 +852,13 @@ def test_merchant_workspace_client_restores_from_get_and_mutates_only_on_explici
     assert 'id="merchant-workspace"' in markup
     assert 'id="request-merchant-proposal"' in markup
     assert 'id="submit-merchant-proposal"' in markup
-    assert 'data-app-view="evidence"' in markup
+    assert 'data-app-view="evidence"' not in markup
+    assert "Evidence dossier" not in markup
     assert '["#merchant", "#merchant-workspace"]' in client
     assert '["#buyer", "#buyer-workspace"]' in client
-    assert '"#evidence"' in client
-    assert '"#historical-evidence"' in client
-    assert '"#controlled-demonstrations"' in client
+    assert '"#evidence"' not in client
+    assert '"#historical-evidence"' not in client
+    assert '"#controlled-demonstrations"' not in client
     assert 'window.addEventListener("hashchange", routeFromHash)' in client
     assert 'window.addEventListener("popstate", routeFromHash)' in client
 

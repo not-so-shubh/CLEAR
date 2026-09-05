@@ -294,31 +294,25 @@ def test_provider_authentication_and_network_failures_are_distinct(
     assert "private transport detail" not in json.dumps(result)
 
 
-def test_browser_live_action_is_opt_in_and_tamper_reveal_remains_zero_fetch() -> None:
-    source = Path("ui/app.js").read_text(encoding="utf-8")
-    live_function = source.split("async function runLiveEvidence()", maxsplit=1)[1].split(
-        '$("#run-demo")', maxsplit=1
-    )[0]
-    tamper_handler = source.split('$("#reveal-tamper").addEventListener("click",', maxsplit=1)[
-        1
-    ].split('$("#run-live-evidence")', maxsplit=1)[0]
+def test_retired_dossier_keeps_razorpay_action_only_in_clearing_product() -> None:
+    shared_source = Path("ui/app.js").read_text(encoding="utf-8")
+    product_source = Path("ui/product_app.js").read_text(encoding="utf-8")
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
+    handler = product_source.split(
+        'runtimeRazorpayButton.addEventListener("click", async () => {', maxsplit=1
+    )[1].split("const renderInterpretationFailure", maxsplit=1)[0]
 
-    assert source.count('fetch("/api/authority-demo"') == 1
-    assert source.count('fetch("/api/razorpay-test-order-evidence"') == 1
-    assert 'fetch("/api/razorpay-test-order-evidence"' in live_function
-    assert "fetch(" not in tamper_handler
-    assert '$("#run-live-evidence").addEventListener("click", runLiveEvidence)' in source
-    assert "runLiveEvidence();" not in source
-    assert 'setText(".live-not-run", liveActionLabels[liveState]);' in source
-    assert all(
-        label in source
-        for label in (
-            "NOT RUN · USER INITIATED",
-            "RUNNING · USER INITIATED",
-            "CURRENT RUN · VALIDATED",
-            "CURRENT RUN · NOT VALIDATED",
-        )
-    )
+    assert "/api/authority-demo" not in shared_source
+    assert "/api/razorpay-test-order-evidence" not in shared_source
+    assert 'id="run-live-evidence"' not in markup
+    assert 'id="create-runtime-razorpay-order"' in markup
+    assert "/authority/razorpay-order`" in handler
+    assert '{ method: "POST", body: "{}" }' in handler
+    assert 'payload.mode !== "RAZORPAY TEST MODE"' in handler
+    assert 'payload.observation !== "CURRENT-RUN PROVIDER OBSERVATION"' in handler
+    assert "provider_contacted !== true" in handler
+    assert "runtimeRazorpayButton.addEventListener" in product_source
+    assert "fetch(" not in shared_source
 
 
 def test_credentials_are_received_only_by_the_server_side_transport(

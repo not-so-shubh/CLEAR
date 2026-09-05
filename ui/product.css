@@ -1,4 +1,4 @@
-/* Shared product workspace and dossier layout. */
+/* Shared product workspace layout. */
 :root {
   --workspace-gap: clamp(40px, 5vw, 72px);
 }
@@ -1681,6 +1681,22 @@ body[data-view="clearing"] .site-header {
   text-transform: uppercase;
 }
 
+.evidence-taxonomy {
+  display: inline-block;
+  justify-self: end;
+  max-width: 230px;
+  padding: 7px 9px;
+  border: 1px solid currentColor;
+  font: 10px/1.35 var(--mono);
+  letter-spacing: .055em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.evidence-limit {
+  color: var(--red);
+}
+
 @media (max-width: 800px) {
   .clearing-proof-limitations {
     grid-template-columns: 1fr;
@@ -1695,25 +1711,6 @@ body[data-view="clearing"] .site-header {
   }
 }
 
-.clearing-dossier-link {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 36px;
-  align-items: end;
-  padding: 42px 0 4px;
-  border-top: 1px solid var(--line);
-}
-
-.clearing-dossier-link .micro-label {
-  margin-bottom: 9px;
-}
-
-.clearing-dossier-link h2 {
-  max-width: 720px;
-  margin: 0;
-  font-size: clamp(28px, 3vw, 44px);
-}
-
 .workspace-footer {
   position: relative;
   display: flex;
@@ -1725,473 +1722,6 @@ body[data-view="clearing"] .site-header {
   border-top: 1px solid var(--line);
   color: var(--muted);
   font: 12px/1.6 var(--mono);
-}
-
-.workspace-footer a {
-  color: var(--text);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 5px;
-}
-
-.evidence-shell {
-  width: min(var(--max), calc(100% - 2 * var(--gutter)));
-  min-height: calc(100vh - 97px);
-  margin-inline: auto;
-  padding: clamp(46px, 6vw, 82px) 0 56px;
-}
-
-.evidence-dossier-intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(300px, .55fr);
-  gap: var(--workspace-gap);
-  align-items: end;
-  padding-bottom: clamp(45px, 5vw, 70px);
-  border-bottom: 1px solid var(--line);
-}
-
-.evidence-dossier-intro h1 {
-  margin: 0;
-  font-size: clamp(48px, 6.2vw, 90px);
-}
-
-.evidence-dossier-intro h1 em {
-  color: var(--muted);
-  font-style: normal;
-}
-
-.evidence-dossier-intro-copy {
-  padding-bottom: 9px;
-  color: var(--muted);
-  font-size: 16px;
-}
-
-.evidence-intro-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px 28px;
-  align-items: center;
-  margin-top: 24px;
-}
-
-.evidence-intro-actions .motion-toggle {
-  color: var(--muted);
-}
-
-.dossier-section {
-  padding: clamp(54px, 6vw, 78px) 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.dossier-section-heading {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  gap: 24px;
-  align-items: start;
-  margin-bottom: 38px;
-}
-
-.dossier-index {
-  padding-top: 4px;
-  color: var(--muted);
-  font: 12px/1.5 var(--mono);
-  white-space: nowrap;
-}
-
-.dossier-section-heading .micro-label {
-  margin-bottom: 8px;
-}
-
-.dossier-section-heading h2 {
-  margin: 0;
-  font-size: clamp(34px, 4vw, 54px);
-}
-
-.evidence-taxonomy {
-  display: inline-block;
-  justify-self: end;
-  max-width: 230px;
-  padding: 7px 9px;
-  border: 1px solid currentColor;
-  font: 10px/1.35 var(--mono);
-  letter-spacing: .055em;
-  text-align: right;
-  text-transform: uppercase;
-}
-
-.evidence-runtime {
-  color: var(--green);
-}
-
-.evidence-fixture {
-  color: #76531f;
-}
-
-.evidence-transport {
-  color: #655493;
-}
-
-.evidence-historical {
-  color: #345e75;
-}
-
-.evidence-limit {
-  color: var(--red);
-}
-
-.runtime-proof-grid {
-  display: grid;
-  grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
-  gap: var(--workspace-gap);
-}
-
-.runtime-proof-summary {
-  max-width: 560px;
-}
-
-.runtime-proof-summary p {
-  margin-bottom: 28px;
-  font-size: 17px;
-  line-height: 1.7;
-}
-
-.runtime-proof-ledger {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  margin: 0;
-  border-top: 1px solid var(--line);
-}
-
-.runtime-proof-ledger > div {
-  min-width: 0;
-  padding: 18px 18px 18px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.runtime-proof-ledger > div:nth-child(even) {
-  padding-left: 18px;
-  border-left: 1px solid var(--line);
-}
-
-.runtime-proof-ledger dt,
-.runtime-proof-ledger dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.runtime-proof-ledger dt {
-  color: var(--muted);
-  font: 11px/1.5 var(--mono);
-}
-
-.runtime-proof-ledger dd {
-  margin-top: 8px;
-  font-size: 15px;
-  font-weight: 560;
-}
-
-.historical-evidence-grid,
-.demonstration-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.dossier-card,
-.demonstration-card {
-  min-width: 0;
-  padding: clamp(24px, 3vw, 34px);
-  border: 1px solid var(--line);
-  background: var(--paper);
-}
-
-.dossier-card {
-  display: flex;
-  flex-direction: column;
-}
-
-.dossier-card .micro-label,
-.demonstration-card .micro-label {
-  margin-bottom: 9px;
-}
-
-.dossier-card h3,
-.demonstration-card h3 {
-  margin: 0 0 18px;
-  font-size: clamp(23px, 2.4vw, 34px);
-  font-weight: 500;
-  letter-spacing: -.035em;
-  line-height: 1.12;
-}
-
-.dossier-card > p:not(.micro-label),
-.demonstration-copy {
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.7;
-}
-
-.dossier-card .dossier-boundary,
-.dossier-boundary {
-  margin-top: auto;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
-  font-size: 13px;
-}
-
-.dossier-card .evidence-taxonomy {
-  align-self: flex-start;
-  justify-self: auto;
-  margin-top: 20px;
-  text-align: left;
-}
-
-.authority-demo-card,
-.razorpay-demo-card {
-  grid-column: 1 / -1;
-}
-
-.demonstration-card-heading,
-.demo-result-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
-}
-
-.demonstration-card-heading .evidence-taxonomy,
-.demo-result-heading .evidence-taxonomy,
-.demonstration-card-heading .ai-run-state,
-.demonstration-card-heading .live-not-run {
-  flex: 0 0 auto;
-}
-
-.demonstration-copy {
-  max-width: 720px;
-}
-
-.demonstration-action-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px 24px;
-  align-items: center;
-  margin-top: 26px;
-}
-
-.demonstration-action-row .action-note {
-  margin: 0;
-}
-
-.dossier-console {
-  max-width: 820px;
-  margin-top: 28px;
-  padding-bottom: 0;
-}
-
-.dossier-console .console-main {
-  padding-top: 22px;
-}
-
-.dossier-console .console-statement {
-  font-size: clamp(30px, 3.8vw, 48px);
-}
-
-.authority-demo-card .results-link {
-  margin-top: 20px;
-}
-
-.demonstration-result {
-  margin-top: 28px;
-}
-
-.demonstration-result > summary {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 18px 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  list-style: none;
-  font-size: 15px;
-  font-weight: 560;
-}
-
-.demonstration-result > summary::-webkit-details-marker {
-  display: none;
-}
-
-.demonstration-result > summary span {
-  font-size: 22px;
-  transition: transform .25s;
-}
-
-.demonstration-result[open] > summary span {
-  transform: rotate(45deg);
-}
-
-.demonstration-result-body {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  margin-top: 1px;
-  background: var(--line);
-}
-
-.demo-result-block {
-  min-width: 0;
-  padding: 24px;
-  background: var(--surface);
-}
-
-.demo-authority-result {
-  background: #20231d;
-  color: #f3f5e9;
-}
-
-.demo-authority-result .micro-label,
-.demo-authority-result small,
-.demo-authority-result .resolved-chain {
-  color: #aaaf9e;
-}
-
-.demo-authority-result .evidence-runtime {
-  color: #b9ddb2;
-}
-
-.demo-authority-result .runtime-invariant {
-  color: #e6c58f;
-}
-
-.demo-result-heading {
-  min-height: 48px;
-  margin-bottom: 18px;
-}
-
-.demo-result-heading .micro-label {
-  margin: 0;
-}
-
-.dossier-fact-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-  border-top: 1px solid var(--line);
-}
-
-.dossier-fact-grid > div {
-  min-width: 0;
-  padding: 14px 14px 14px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.dossier-fact-grid > div:nth-child(even) {
-  padding-left: 14px;
-  border-left: 1px solid var(--line);
-}
-
-.dossier-fact-grid dt,
-.dossier-fact-grid dd,
-.dossier-fact-grid small {
-  display: block;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.dossier-fact-grid dt,
-.dossier-fact-grid small {
-  color: var(--muted);
-  font: 10px/1.5 var(--mono);
-}
-
-.dossier-fact-grid dd {
-  margin-top: 7px;
-  font-size: 14px;
-  font-weight: 550;
-}
-
-.dossier-fact-grid small {
-  margin-top: 5px;
-}
-
-.compact-object-list,
-.compact-id-list {
-  margin-top: 20px;
-}
-
-.compact-object-list .offer-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.compact-provider-trace {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  margin-top: 20px;
-  background: var(--line);
-}
-
-.compact-provider-trace .trace-step {
-  min-height: 175px;
-}
-
-.compact-tamper-flow {
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  margin-top: 28px;
-}
-
-.compact-tamper-flow .governor-block {
-  align-self: center;
-}
-
-.demonstration-card.ai-live-task {
-  border-top: 1px solid var(--line);
-  background: var(--paper);
-}
-
-.demonstration-card .ai-run-button {
-  margin-top: 16px;
-}
-
-.demonstration-card .ai-live-result,
-.demonstration-card .live-evidence-result {
-  min-height: 0;
-}
-
-.razorpay-demo-card .live-boundaries {
-  max-width: 820px;
-}
-
-.razorpay-demo-card .live-evidence-result {
-  margin-top: 24px;
-}
-
-.dossier-limitations {
-  border-bottom: 0;
-}
-
-.dossier-limitations > p {
-  max-width: 680px;
-  color: var(--muted);
-  font-size: 16px;
-  line-height: 1.7;
-}
-
-.limitations-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  margin: 30px 0 0;
-  padding: 1px;
-  background: var(--line);
-  list-style: none;
-}
-
-.limitations-list li {
-  min-width: 0;
-  padding: 18px;
-  background: var(--surface);
-  font: 12px/1.55 var(--mono);
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1120px) {
@@ -2271,8 +1801,7 @@ body[data-view="clearing"] .site-header {
 
   .buyer-shell,
   .merchant-shell,
-  .clearing-shell,
-  .evidence-shell {
+  .clearing-shell {
     padding-top: 40px;
   }
 
@@ -2287,15 +1816,13 @@ body[data-view="clearing"] .site-header {
 
   .buyer-intro,
   .merchant-intro,
-  .clearing-intro,
-  .evidence-dossier-intro {
+  .clearing-intro {
     gap: 28px;
   }
 
   .buyer-intro h1,
   .merchant-intro h1,
-  .clearing-intro h1,
-  .evidence-dossier-intro h1 {
+  .clearing-intro h1 {
     font-size: clamp(43px, 13vw, 72px);
   }
 
@@ -2412,60 +1939,6 @@ body[data-view="clearing"] .site-header {
     border-left: 0;
   }
 
-  .evidence-dossier-intro,
-  .runtime-proof-grid,
-  .historical-evidence-grid,
-  .demonstration-grid,
-  .demonstration-result-body {
-    grid-template-columns: 1fr;
-  }
-
-  .dossier-section-heading {
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 18px;
-  }
-
-  .dossier-section-heading > .evidence-taxonomy {
-    grid-column: 2;
-    justify-self: start;
-    text-align: left;
-  }
-
-  .authority-demo-card,
-  .razorpay-demo-card {
-    grid-column: auto;
-  }
-
-  .demonstration-card-heading,
-  .demo-result-heading {
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .demonstration-card-heading .evidence-taxonomy,
-  .demo-result-heading .evidence-taxonomy {
-    align-self: flex-start;
-    text-align: left;
-  }
-
-  .compact-provider-trace,
-  .compact-tamper-flow {
-    grid-template-columns: 1fr;
-  }
-
-  .compact-provider-trace .trace-step {
-    min-height: 0;
-  }
-
-  .limitations-list {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .clearing-dossier-link {
-    grid-template-columns: 1fr;
-    align-items: start;
-  }
-
   .workspace-footer {
     align-items: flex-start;
     flex-direction: column;
@@ -2508,31 +1981,4 @@ body[data-view="clearing"] .site-header {
     border-top: 1px solid #3c4234;
   }
 
-  .dossier-section-heading {
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 13px;
-  }
-
-  .runtime-proof-ledger,
-  .dossier-fact-grid,
-  .limitations-list {
-    grid-template-columns: 1fr;
-  }
-
-  .runtime-proof-ledger > div:nth-child(even),
-  .dossier-fact-grid > div:nth-child(even) {
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .demonstration-card .button,
-  .demonstration-action-row .button {
-    width: 100%;
-  }
-
-  .demonstration-card-heading .ai-run-state,
-  .demonstration-card-heading .live-not-run {
-    max-width: 100%;
-    overflow-wrap: anywhere;
-  }
 }

@@ -508,43 +508,20 @@ def test_ai_evidence_paths_have_zero_financial_or_payment_side_effects(
     assert explanation["result"] == "SUCCESS"
 
 
-def test_client_actions_are_explicit_shared_guarded_and_safely_render_claims() -> None:
+def test_retired_dossier_has_no_browser_ai_clients() -> None:
     source = Path("ui/app.js").read_text(encoding="utf-8")
-    ai_function = source.split("async function runAIEvidence(taskId)", maxsplit=1)[1].split(
-        '$("#run-demo")', maxsplit=1
-    )[0]
-    demo_function = source.split("async function runDemo()", maxsplit=1)[1].split(
-        "const LiveState", maxsplit=1
-    )[0]
-    live_function = source.split("async function runLiveEvidence()", maxsplit=1)[1].split(
-        "const AIState", maxsplit=1
-    )[0]
-    tamper_handler = source.split('$("#reveal-tamper").addEventListener("click",', maxsplit=1)[
-        1
-    ].split('$("#run-live-evidence")', maxsplit=1)[0]
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
 
-    assert source.count('endpoint: "/api/ai-merchant-proposal-evidence"') == 1
-    assert source.count('endpoint: "/api/ai-certificate-explanation-evidence"') == 1
-    assert "fetch(task.endpoint" in ai_function
-    assert 'body: "{}"' in ai_function
-    assert "if (activeAITask !== null) return;" in ai_function
-    assert "clearAIResult(task);" in ai_function
-    assert ai_function.index("clearAIResult(task);") < ai_function.index("fetch(task.endpoint")
-    assert "button.disabled = activeAITask !== null;" in source
-    assert "fetch(" not in tamper_handler
-    assert "/api/ai-" not in demo_function
-    assert "/api/ai-" not in live_function
-    assert "text.textContent = claim.text;" in source
-    assert "document.createTextNode" in source
+    assert "/api/ai-merchant-proposal-evidence" not in source
+    assert "/api/ai-certificate-explanation-evidence" not in source
+    assert 'id="run-merchant-ai"' not in markup
+    assert 'id="run-explanation-ai"' not in markup
+    assert "fetch(" not in source
     assert "innerHTML" not in source
     assert "allocated_quantity" not in source
-    assert 'setAIField(task, "claims-count", data.claims_count);' in source
-    assert 'setAIField(task, "displayed-claims-count", data.displayed_claims_count);' in source
-    assert 'runAIEvidence("merchant")' in source
-    assert 'runAIEvidence("explanation")' in source
 
 
-def test_ui_preserves_exact_evidence_taxonomy() -> None:
+def test_surviving_ui_uses_only_canonical_evidence_taxonomy_labels() -> None:
     source = Path("ui/index.html").read_text(encoding="utf-8")
     canonical = {
         "REAL LOCAL PRODUCTION LOGIC",
@@ -561,10 +538,10 @@ def test_ui_preserves_exact_evidence_taxonomy() -> None:
         )
     }
 
-    assert labels == canonical
-    assert "CLAIMS VALIDATED" in source
-    assert "CLAIMS DISPLAYED" in source
-    assert "CURRENT RUN · EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER" in source
+    assert labels == {"NOT DEMONSTRATED"}
+    assert labels <= canonical
+    assert "CLAIMS VALIDATED" not in source
+    assert "CLAIMS DISPLAYED" not in source
 
 
 def test_reviewed_historical_ai_wording_is_bounded_and_not_official_openai() -> None:
@@ -577,8 +554,7 @@ def test_reviewed_historical_ai_wording_is_bounded_and_not_official_openai() -> 
         "OpenAI-compatible provider after independent certificate verification."
     )
     sources = [
-        Path(path).read_text(encoding="utf-8")
-        for path in ("README.md", "docs/ARCHITECTURE.md", "ui/index.html")
+        Path(path).read_text(encoding="utf-8") for path in ("README.md", "docs/ARCHITECTURE.md")
     ]
 
     for source in sources:

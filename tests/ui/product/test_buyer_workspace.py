@@ -885,29 +885,37 @@ def test_buyer_client_has_no_runtime_markup_or_hard_coded_commercial_authority()
     assert "replaceChildren" in source
 
 
-def test_primary_navigation_and_evidence_dossier_share_the_working_shell() -> None:
+def test_primary_navigation_exposes_exactly_three_product_workspaces() -> None:
     markup = Path("ui/index.html").read_text(encoding="utf-8")
     client = Path("ui/product_app.js").read_text(encoding="utf-8")
 
-    assert 'data-view-target="buyer"' in markup
-    assert 'data-view-target="merchant"' in markup
-    assert 'data-view-target="clearing"' in markup
-    assert 'data-view-target="evidence"' not in markup
+    assert re.findall(r'data-view-target="([^"]+)"', markup) == [
+        "buyer",
+        "merchant",
+        "clearing",
+    ]
+    assert re.findall(r'<main[^>]+data-app-view="([^"]+)"', markup) == [
+        "buyer",
+        "merchant",
+        "clearing",
+    ]
     assert 'id="buyer-workspace"' in markup
     assert 'id="buyer-draft-form"' in markup
     assert 'id="freeze-buyer-policy"' in markup
-    assert '<main class="evidence-shell" id="top" data-app-view="evidence" hidden>' in markup
-    assert "CLEAR · EVIDENCE DOSSIER" in markup
-    assert 'href="#evidence">Evidence dossier' in markup
-    assert 'id="run-demo"' in markup
-    assert 'id="run-live-evidence"' in markup
-    assert 'id="run-merchant-ai"' in markup
-    assert 'id="run-explanation-ai"' in markup
+    assert "Evidence dossier" not in markup
+    assert 'data-app-view="evidence"' not in markup
+    assert 'data-view-target="evidence"' not in markup
     assert '["#buyer", "#buyer-workspace"]' in client
-    assert '"#current-runtime-proof"' in client
-    assert '"#historical-evidence"' in client
-    assert '"#controlled-demonstrations"' in client
-    assert '"#limitations"' in client
+    assert '["#merchant", "#merchant-workspace"]' in client
+    assert '["#clearing", "#market-clearing"]' in client
+    for retired_hash in (
+        '"#evidence"',
+        '"#current-runtime-proof"',
+        '"#historical-evidence"',
+        '"#controlled-demonstrations"',
+        '"#limitations"',
+    ):
+        assert retired_hash not in client
     assert "preserveHash" in client
     assert 'hashMode: "push"' in client
     assert 'window.addEventListener("hashchange", routeFromHash)' in client
@@ -953,7 +961,7 @@ def test_primary_workspaces_keep_independent_session_scroll_memory() -> None:
     assert 'selectPrimaryWorkspace("buyer", { forceTop: true });' in wordmark_block
     assert "if (forceTop) primaryWorkspaceScrollPositions.set(view, 0);" in memory_block
     assert 'href="#buyer"' in markup
-    assert 'if (currentView !== selected && selected !== "evidence") {' in route_block
+    assert "if (currentView !== selected) restorePrimaryWorkspaceScroll(selected);" in route_block
     assert "primaryWorkspaceViews" in memory_block
     assert '"evidence"' not in memory_block
     for evidence_hash in (
@@ -963,11 +971,11 @@ def test_primary_workspaces_keep_independent_session_scroll_memory() -> None:
         '"#controlled-demonstrations"',
         '"#limitations"',
     ):
-        assert evidence_hash in client
+        assert evidence_hash not in client
     assert "innerHTML" not in client
 
 
-def test_stale_evidence_view_preference_falls_back_to_buyer() -> None:
+def test_stale_evidence_view_preference_and_hash_are_not_application_views() -> None:
     client = Path("ui/product_app.js").read_text(encoding="utf-8")
     persistence_block = client.split(
         'if (["buyer", "merchant", "clearing"].includes(selected)) {', 1
@@ -989,7 +997,8 @@ def test_stale_evidence_view_preference_falls_back_to_buyer() -> None:
     assert "const initialSelectedView = initialHashView || restoredWorkspaceView();" in client
     assert "setView(initialSelectedView" in client
     assert "const selected = hashView || restoredWorkspaceView();" in route_block
-    assert '"#evidence"' in client
+    assert '"#evidence"' not in client
+    assert '"evidence"' not in restoration_block
 
 
 def test_product_money_is_formatted_as_inr_only_at_the_presentation_boundary() -> None:
@@ -1029,64 +1038,37 @@ def test_product_money_is_formatted_as_inr_only_at_the_presentation_boundary() -
         assert legacy_markup not in markup
 
 
-def test_evidence_dossier_preserves_controls_truth_taxonomy_and_limits() -> None:
+def test_retired_evidence_dossier_leaves_only_shared_shell_behavior() -> None:
     markup = Path("ui/index.html").read_text(encoding="utf-8")
-    evidence_markup = markup.split('<main class="evidence-shell"', 1)[1].split(
-        '<footer class="workspace-footer evidence-footer"', 1
-    )[0]
-    taxonomy = set(
-        re.findall(
-            r'class="evidence-taxonomy[^\"]*"(?: data-field="[^\"]+")?>([^<]+)</span>',
-            evidence_markup,
-        )
-    )
-    controlled_heading = evidence_markup.split('id="controlled-demonstrations"', 1)[1].split(
-        '<div class="demonstration-grid">', 1
-    )[0]
-    authority_card = evidence_markup.split('class="demonstration-card authority-demo-card"', 1)[
-        1
-    ].split('class="demonstration-card tamper-demo-card"', 1)[0]
-    tamper_card = evidence_markup.split('class="demonstration-card tamper-demo-card"', 1)[1].split(
-        'class="demonstration-card ai-live-task"', 1
-    )[0]
+    shared_client = Path("ui/app.js").read_text(encoding="utf-8")
 
-    assert taxonomy == {
-        "REAL LOCAL PRODUCTION LOGIC",
-        "DETERMINISTIC FIXTURE",
-        "FAKE/CONTROLLED EXTERNAL TRANSPORT",
-        "HISTORICAL LIVE EVIDENCE ONLY",
-        "NOT DEMONSTRATED",
-    }
-    assert "DETERMINISTIC FIXTURE" not in controlled_heading
-    assert "DETERMINISTIC FIXTURE" in authority_card
-    assert "DETERMINISTIC FIXTURE" in tamper_card
-    assert (
-        "CLEAR\u2019s Governor-gated Razorpay order path was exercised against real Razorpay Test "
-        "Mode: order creation succeeded and a second identical call resolved the existing "
-        "provider order through provider-backed retrieval." in evidence_markup
-    )
-    assert (
-        "This does not prove capture, customer payment, live webhook, transfer creation, "
-        "settlement, refunds, fulfillment, real-money movement, exactly-once delivery, or "
-        "full-system live execution." in evidence_markup
-    )
-    for control_id in (
+    assert "Evidence dossier" not in markup
+    assert 'data-app-view="evidence"' not in markup
+    for retired_control in (
         "run-demo",
         "reveal-tamper",
+        "run-live-evidence",
         "run-merchant-ai",
         "run-explanation-ai",
-        "run-live-evidence",
     ):
-        assert f'id="{control_id}"' in evidence_markup
-    for limitation in (
-        "Payment capture",
-        "Transfer creation or settlement",
-        "Physical fulfillment",
-        "Refunds or reversals",
-        "Real-money movement",
-        "Transcript completeness",
+        assert f'id="{retired_control}"' not in markup
+    for retired_dependency in (
+        ".motion-toggle",
+        ".menu-toggle",
+        "#primary-nav",
+        "data-reveal",
+        "IntersectionObserver",
+        "/api/authority-demo",
+        "/api/razorpay-test-order-evidence",
+        "/api/ai-merchant-proposal-evidence",
+        "/api/ai-certificate-explanation-evidence",
     ):
-        assert limitation in evidence_markup
+        assert retired_dependency not in shared_client
+    assert 'document.querySelector(".reading-progress")' in shared_client
+    assert 'document.body.classList.toggle("is-scrolled", window.scrollY > 24);' in shared_client
+    assert 'window.addEventListener("scroll", scheduleScroll, { passive: true });' in shared_client
+    assert "fetch(" not in shared_client
+    assert "innerHTML" not in shared_client
 
 
 def test_frozen_restore_and_new_draft_have_truthful_control_states() -> None:

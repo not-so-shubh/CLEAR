@@ -618,9 +618,7 @@ def test_concurrent_close_has_one_result_and_reconciles_through_snapshot(
 def test_clearing_client_is_get_restored_and_close_body_has_no_authority() -> None:
     markup = Path("ui/index.html").read_text(encoding="utf-8")
     client = Path("ui/product_app.js").read_text(encoding="utf-8")
-    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split(
-        '<main class="evidence-shell"', 1
-    )[0]
+    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split("</main>", 1)[0]
     close_block = client.split('closeClearingMarket.addEventListener("click"', 1)[1].split(
         "if (refreshClearingMarkets", 1
     )[0]
@@ -632,8 +630,10 @@ def test_clearing_client_is_get_restored_and_close_body_has_no_authority() -> No
     assert 'data-view-target="merchant"' in markup
     assert 'data-view-target="clearing"' in markup
     assert 'data-view-target="evidence"' not in markup
-    assert 'href="#evidence">Evidence dossier' in clearing_markup
+    assert "Evidence dossier" not in markup
+    assert 'data-app-view="evidence"' not in markup
     assert '["#clearing", "#market-clearing"]' in client
+    assert '"#evidence"' not in client
     assert 'window.addEventListener("hashchange", routeFromHash)' in client
     assert 'window.addEventListener("popstate", routeFromHash)' in client
     assert "CLEAR · MARKET CLEARING" in clearing_markup
@@ -755,9 +755,7 @@ def test_clearing_money_display_preserves_the_structural_authority_layout() -> N
     markup = Path("ui/index.html").read_text(encoding="utf-8")
     styles = Path("ui/product.css").read_text(encoding="utf-8")
     client = Path("ui/product_app.js").read_text(encoding="utf-8")
-    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split(
-        '<main class="evidence-shell"', 1
-    )[0]
+    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split("</main>", 1)[0]
 
     assert 'class="clearing-snapshot" id="clearing-snapshot"' in clearing_markup
     assert clearing_markup.index('class="clearing-work-grid"') < clearing_markup.index(
@@ -791,14 +789,13 @@ def test_clearing_money_display_preserves_the_structural_authority_layout() -> N
 
 def test_clearing_ends_with_a_compact_proof_and_limitations_summary() -> None:
     markup = Path("ui/index.html").read_text(encoding="utf-8")
-    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split(
-        '<main class="evidence-shell"', 1
-    )[0]
+    styles = Path("ui/product.css").read_text(encoding="utf-8")
+    clearing_markup = markup.split('<main class="clearing-shell"', 1)[1].split("</main>", 1)[0]
 
     assert "PROOF &amp; LIMITATIONS" in clearing_markup
-    assert clearing_markup.index("Evidence dossier") < clearing_markup.index(
-        "PROOF &amp; LIMITATIONS"
-    )
+    assert "Evidence dossier" not in markup
+    proof_styles = styles.split(".clearing-proof-limitations {", 1)[1].split("}", 1)[0]
+    assert "background: #20231d;" in proof_styles
     for proven_boundary in (
         "✓</span> Deterministic allocation",
         "✓</span> Replay-verifiable AllocationCertificateV2",
