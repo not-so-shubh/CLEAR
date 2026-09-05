@@ -1,336 +1,305 @@
-const runButton = document.querySelector("#run-demo");
-const tamperButton = document.querySelector("#reveal-tamper");
-const runStatus = document.querySelector("#run-status");
-const failurePanel = document.querySelector("#demo-failure");
-const validResult = document.querySelector("#valid-result");
-const tamperResult = document.querySelector("#tamper-result");
-const evidenceSection = document.querySelector("#evidence-section");
-const historicalSection = document.querySelector("#historical-section");
-const limitationsSection = document.querySelector("#limitations-section");
-const validPath = document.querySelector("#valid-path");
-const tamperPath = document.querySelector("#tamper-path");
+(() => {
+  "use strict";
 
-let currentPresentation = null;
-
-function element(tagName, className, text) {
-  const node = document.createElement(tagName);
-  if (className) {
-    node.className = className;
-  }
-  if (text !== undefined) {
-    node.textContent = String(text);
-  }
-  return node;
-}
-
-function evidenceBadge(label) {
-  const evidenceClasses = new Set([
-    "REAL LOCAL PRODUCTION LOGIC",
-    "DETERMINISTIC FIXTURE",
-    "FAKE/CONTROLLED EXTERNAL TRANSPORT",
-    "HISTORICAL LIVE EVIDENCE ONLY",
-    "NOT DEMONSTRATED",
-  ]);
-  if (!evidenceClasses.has(label)) {
-    throw new Error("unknown evidence class");
-  }
-  const badge = element("span", "evidence-badge", label);
-  const tones = {
-    "REAL LOCAL PRODUCTION LOGIC": "production",
-    "DETERMINISTIC FIXTURE": "fixture",
-    "FAKE/CONTROLLED EXTERNAL TRANSPORT": "fixture",
-    "HISTORICAL LIVE EVIDENCE ONLY": "fixture",
-    "NOT DEMONSTRATED": "muted",
-  };
-  badge.dataset.tone = tones[label] || "muted";
-  return badge;
-}
-
-function labeledValue(label, value, className = "") {
-  const block = element("div", `labeled-value ${className}`.trim());
-  block.append(element("span", "value-label", label), element("strong", "value", value));
-  return block;
-}
-
-function factRow(label, value) {
-  const row = element("div", "fact-row");
-  row.append(element("span", "fact-label", label), element("span", "fact-value", value));
-  return row;
-}
-
-function step(number, kicker, title) {
-  const item = element("li", "proof-step");
-  const marker = element("div", "step-marker", number);
-  const body = element("article", "step-body");
-  const heading = element("div", "step-heading");
-  heading.append(element("p", "eyebrow", kicker), element("h3", "", title));
-  body.append(heading);
-  item.append(marker, body);
-  return { item, body };
-}
-
-function renderIntent(data, fixtureContext) {
-  const { item, body } = step("01", "Intent", "Advisory input becomes frozen policy.");
-  const transition = element("div", "authority-transition");
-  const input = element("div", "labeled-value");
-  input.append(
-    element("span", "value-label", "INPUT CONTEXT"),
-    factRow("Requested quantity", fixtureContext.requested_quantity),
-    factRow("Max winners", fixtureContext.max_winners),
-    element("p", "supporting-copy", data.advisory_boundary),
-    evidenceBadge(data.candidate_and_context_evidence),
-  );
-  const policy = labeledValue("DETERMINISTIC FREEZE", data.policy_type);
-  policy.append(
-    element("p", "supporting-copy", "The real freeze path produced the authoritative buyer policy."),
-    evidenceBadge(data.policy_freeze_evidence),
-  );
-  transition.append(input, element("span", "transition-arrow", "↓"), policy);
-  body.append(transition);
-  return item;
-}
-
-function renderSupply(data, fixtureContext) {
-  const { item, body } = step("02", "Authenticated supply", "Seller inputs become authenticated offers.");
-  const merchants = element("div", "merchant-ledger");
-  fixtureContext.merchants.forEach((merchant) => {
-    const merchantBlock = element("article", "merchant-line");
-    merchantBlock.append(
-      element("h4", "", merchant.display_name),
-      factRow("Capacity", merchant.capacity),
-      factRow("Unit price", `${merchant.unit_price_paise} paise`),
-      evidenceBadge(merchant.evidence),
-    );
-    merchants.append(merchantBlock);
+  const State = Object.freeze({
+    IDLE: "IDLE",
+    RUNNING: "RUNNING",
+    VALID_RESULT: "VALID_RESULT",
+    TAMPER_REVEALED: "TAMPER_REVEALED",
+    ERROR: "ERROR",
   });
-  const authenticated = element("div", "step-conclusion");
-  authenticated.append(
-    element("span", "transition-arrow", "↓"),
-    element("strong", "", `${data.authenticated_offer_count} authenticated offers`),
-    evidenceBadge(data.offer_evidence),
-  );
-  body.append(merchants, authenticated);
-  return item;
-}
 
-function renderClearing(data) {
-  const { item, body } = step("03", "Deterministic clearing", "The economic agreement is computed.");
-  const metrics = element("div", "clearing-metrics");
-  const requested = labeledValue("REQUESTED INPUT", data.requested_quantity);
-  requested.append(evidenceBadge(data.requested_quantity_evidence));
-  metrics.append(
-    requested,
-    labeledValue("FULFILLED", data.fulfilled_quantity),
-    labeledValue("WINNERS", data.winner_count),
-    labeledValue("TOTAL PAYMENT", `${data.total_payment_paise} paise`, "metric-wide"),
-  );
-  const allocatorOutput = element("div", "allocator-output");
-  const winnerIds = element("div", "winner-ids");
-  data.winner_merchant_ids.forEach((winnerId) => {
-    winnerIds.append(element("code", "merchant-id", winnerId));
+  const transitions = Object.freeze({
+    IDLE: [State.RUNNING],
+    RUNNING: [State.VALID_RESULT, State.ERROR],
+    VALID_RESULT: [State.RUNNING, State.TAMPER_REVEALED],
+    TAMPER_REVEALED: [State.RUNNING],
+    ERROR: [State.RUNNING],
   });
-  allocatorOutput.append(
-    element("span", "value-label", "ALLOCATOR-SELECTED WINNER IDS"),
-    winnerIds,
-    element("strong", "status-technical", data.allocation_status),
-    evidenceBadge(data.computed_evidence),
-  );
-  body.append(metrics, allocatorOutput);
-  return item;
-}
 
-function renderProof(data) {
-  const { item, body } = step("04", "Proof", "An independently verifiable certificate carries the result.");
-  const certificate = element("div", "certificate-block");
-  certificate.append(
-    element("span", "value-label", data.certificate_type),
-    element("code", "digest", data.certificate_digest_sha256),
-  );
-  const badges = element("div", "badge-row");
-  badges.append(evidenceBadge(data.construction_evidence), evidenceBadge(data.verification_evidence));
-  const conclusion = element("div", "step-conclusion");
-  conclusion.append(
-    element("span", "transition-arrow", "↓"),
-    element("strong", "status-verified", "Independent verification succeeds"),
-    badges,
-  );
-  body.append(certificate, conclusion);
-  return item;
-}
+  let state = State.IDLE;
+  let currentResult = null;
+  const $ = (selector) => document.querySelector(selector);
+  const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
-function renderAuthority(data) {
-  const { item, body } = step("05", "Money authority", "Only verified proof reaches the execution gate.");
-  const gate = element("div", "governor-gate");
-  gate.append(
-    element("span", "gate-input", "VALID CERTIFICATE"),
-    element("span", "transition-arrow", "↓"),
-    element("strong", "gate-name", data.authority),
-    element("span", "transition-arrow", "↓"),
-    element("span", "gate-output", data.execution_reserved ? "EXECUTION RESERVED" : "CLOSED"),
-  );
-  const conclusion = element("div", "step-conclusion");
-  conclusion.append(evidenceBadge(data.evidence));
-  body.append(gate, conclusion);
-  return item;
-}
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let motionPaused = reducedMotion.matches;
 
-function renderProvider(data) {
-  const { item, body } = step("06", "Controlled provider path", "Idempotent order resolution is exercised locally.");
-  const orders = element("div", "order-sequence");
-  data.orders.forEach((order, index) => {
-    const orderBlock = element("article", "order-resolution");
-    orderBlock.append(
-      element("span", "value-label", index === 0 ? "FIRST ATTEMPT" : "SECOND IDENTICAL CALL"),
-      element("strong", "resolution", order.resolution),
-      element("p", "supporting-copy", order.copy),
-      factRow("Resolution", order.resolution_evidence),
-      factRow("Provider boundary", order.provider_boundary),
-    );
-    orders.append(orderBlock);
-    if (index < data.orders.length - 1) {
-      orders.append(element("span", "order-arrow", "↓"));
-    }
-  });
-  const counters = element("div", "transport-counters");
-  counters.append(
-    element("p", "value-label", data.counter_label),
-    labeledValue("POST", data.provider_post_count),
-    labeledValue("GET", data.provider_get_count),
-  );
-  body.append(orders, counters);
-  return item;
-}
-
-function renderValidPath(presentation) {
-  const data = presentation.valid_path;
-  validPath.replaceChildren(
-    renderIntent(data.intent, presentation.fixture_context),
-    renderSupply(data.authenticated_supply, presentation.fixture_context),
-    renderClearing(data.deterministic_clearing),
-    renderProof(data.proof),
-    renderAuthority(data.money_authority),
-    renderProvider(data.controlled_provider_path),
-  );
-  document.querySelector("#demo-version").textContent = presentation.demo_version;
-}
-
-function renderEvidence(labels) {
-  const container = document.querySelector("#evidence-labels");
-  container.replaceChildren(...labels.map((label) => evidenceBadge(label)));
-}
-
-function renderHistorical(data) {
-  document.querySelector("#historical-label").textContent = data.label;
-  document.querySelector("#historical-claim").textContent = data.claim;
-  document.querySelector("#current-run-notice").textContent = data.current_run_notice;
-}
-
-function renderLimitations(limitations) {
-  const list = document.querySelector("#limitations");
-  list.replaceChildren(
-    ...limitations.map((limitation) => {
-      const item = element("li", "");
-      item.append(element("span", "", limitation.claim), evidenceBadge(limitation.evidence));
-      return item;
-    }),
-  );
-}
-
-function tamperSequenceItem(text, detail) {
-  const item = element("li", "tamper-step");
-  item.append(element("strong", "", text));
-  if (detail) {
-    item.append(element("span", "", detail));
+  function updateMotion() {
+    const off = motionPaused || reducedMotion.matches;
+    document.documentElement.dataset.motion = off ? "off" : "on";
+    $(".motion-toggle").setAttribute("aria-pressed", String(off));
+    $(".motion-toggle").disabled = reducedMotion.matches;
+    setText("[data-motion-label]", reducedMotion.matches ? "Reduced motion" : off ? "Resume motion" : "Pause motion");
+    setText("[data-motion-icon]", off ? "▷" : "Ⅱ");
   }
-  return item;
-}
 
-function renderTamper(data) {
-  const counters = `POST ${data.provider_post_count} / GET ${data.provider_get_count}`;
-  tamperPath.replaceChildren(
-    tamperSequenceItem(data.altered_claim, "Certified claim differs from the proof"),
-    tamperSequenceItem(data.verifier, data.verification_evidence),
-    tamperSequenceItem(data.governor_failure_code, "Certificate rejected"),
-    tamperSequenceItem(data.governor_state, data.governor_evidence),
-    tamperSequenceItem(data.provider_state, `${data.provider_boundary} · ${counters}`),
-  );
-  document.querySelector("#tamper-outcome").textContent = data.outcome;
-  tamperResult.hidden = false;
-  tamperButton.disabled = true;
-  tamperButton.setAttribute("aria-expanded", "true");
-  tamperResult.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function clearPresentation() {
-  currentPresentation = null;
-  validPath.replaceChildren();
-  tamperPath.replaceChildren();
-  validResult.hidden = true;
-  tamperResult.hidden = true;
-  evidenceSection.hidden = true;
-  historicalSection.hidden = true;
-  limitationsSection.hidden = true;
-  failurePanel.hidden = true;
-  tamperButton.disabled = true;
-  tamperButton.setAttribute("aria-expanded", "false");
-}
-
-function assertPresentationShape(presentation) {
-  if (
-    !presentation ||
-    presentation.invariant !== "NO VALID CERTIFICATE = NO MONEY ACTION" ||
-    !presentation.valid_path ||
-    !presentation.tamper_path ||
-    !Array.isArray(presentation.evidence_labels)
-  ) {
-    throw new Error("invalid presentation response");
+  function closeMenu() {
+    $(".menu-toggle").setAttribute("aria-expanded", "false");
+    $("#primary-nav").classList.remove("is-open");
   }
-}
 
-async function runDemo() {
-  clearPresentation();
-  runButton.disabled = true;
-  runButton.setAttribute("aria-busy", "true");
-  runStatus.textContent = "Running deterministic local authority path…";
-  document.body.dataset.state = "running";
-
-  try {
-    const response = await fetch("/api/demo", {
-      method: "GET",
-      cache: "no-store",
-      headers: { Accept: "application/json" },
+  function setupExperience() {
+    updateMotion();
+    reducedMotion.addEventListener("change", () => {
+      motionPaused = reducedMotion.matches;
+      updateMotion();
     });
-    if (!response.ok) {
-      throw new Error("demo request failed");
-    }
-    const presentation = await response.json();
-    assertPresentationShape(presentation);
-    currentPresentation = presentation;
-    renderValidPath(presentation);
-    renderEvidence(presentation.evidence_labels);
-    renderHistorical(presentation.historical_evidence);
-    renderLimitations(presentation.limitations);
-    validResult.hidden = false;
-    evidenceSection.hidden = false;
-    historicalSection.hidden = false;
-    limitationsSection.hidden = false;
-    tamperButton.disabled = false;
-    runStatus.textContent = "Authority path completed from a fresh deterministic run.";
-    document.body.dataset.state = "complete";
-  } catch (_error) {
-    clearPresentation();
-    failurePanel.hidden = false;
-    runStatus.textContent = "Deterministic authority path unavailable.";
-    document.body.dataset.state = "failed";
-  } finally {
-    runButton.disabled = false;
-    runButton.removeAttribute("aria-busy");
-  }
-}
+    $(".motion-toggle").addEventListener("click", () => {
+      motionPaused = !motionPaused;
+      updateMotion();
+    });
 
-runButton.addEventListener("click", runDemo);
-tamperButton.addEventListener("click", () => {
-  if (currentPresentation) {
-    renderTamper(currentPresentation.tamper_path);
+    // Real text is retained for assistive technology; the animated letters are decorative.
+    $$("[data-split]").forEach((line) => {
+      const text = line.textContent;
+      line.setAttribute("aria-label", text);
+      const letters = document.createDocumentFragment();
+      Array.from(text).forEach((character, index) => {
+        const letter = document.createElement("span");
+        letter.className = "split-char";
+        letter.setAttribute("aria-hidden", "true");
+        letter.style.setProperty("--char-index", String(index));
+        letter.textContent = character === " " ? "\u00a0" : character;
+        letters.append(letter);
+      });
+      line.replaceChildren(letters);
+    });
+
+    if ("IntersectionObserver" in window) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        });
+      }, { threshold: 0.06, rootMargin: "0px 0px -20px 0px" });
+      $$("[data-reveal]").forEach((element) => observer.observe(element));
+      document.documentElement.classList.add("reveal-ready");
+    }
+
+    // Native scrolling, with one paint per scroll frame. No scroll interception or idle loop.
+    let scrollFrame = null;
+    const updateScroll = () => {
+      const root = document.documentElement;
+      const distance = Math.max(0, root.scrollHeight - window.innerHeight);
+      const progress = distance ? Math.min(1, Math.max(0, window.scrollY / distance)) : 0;
+      $(".reading-progress").style.transform = `scaleX(${progress})`;
+      document.body.classList.toggle("is-scrolled", window.scrollY > 24);
+      scrollFrame = null;
+    };
+    const scheduleScroll = () => {
+      if (scrollFrame === null) scrollFrame = window.requestAnimationFrame(updateScroll);
+    };
+    window.addEventListener("scroll", scheduleScroll, { passive: true });
+    window.addEventListener("resize", scheduleScroll, { passive: true });
+    $$("details").forEach((detail) => detail.addEventListener("toggle", scheduleScroll));
+    updateScroll();
+
+    $(".menu-toggle").addEventListener("click", () => {
+      const open = $(".menu-toggle").getAttribute("aria-expanded") !== "true";
+      $(".menu-toggle").setAttribute("aria-expanded", String(open));
+      $("#primary-nav").classList.toggle("is-open", open);
+    });
+    $$("#primary-nav a").forEach((link) => link.addEventListener("click", closeMenu));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && $(".menu-toggle").getAttribute("aria-expanded") === "true") {
+        closeMenu();
+        $(".menu-toggle").focus();
+      }
+    });
+    document.addEventListener("click", (event) => {
+      if (!$(".site-header").contains(event.target)) closeMenu();
+    });
   }
-});
+
+  function setText(selector, value) {
+    const element = $(selector);
+    if (element) element.textContent = String(value);
+  }
+
+  function formatRupees(paise) {
+    const rupees = Math.floor(paise / 100);
+    const remainder = String(paise % 100).padStart(2, "0");
+    return `₹${rupees.toLocaleString("en-IN")}.${remainder}`;
+  }
+
+  function assertPresentation(payload) {
+    const required = ["current_run", "intent", "policy", "offers", "allocation", "certificate", "verification", "governor", "valid_provider_branch", "tamper_branch"];
+    if (!payload || payload.presentation_version !== "clear-authority-presentation-v1" || required.some((key) => !(key in payload))) throw new Error("Invalid presentation response");
+    if (payload.current_run.ai_invoked !== false || payload.current_run.razorpay_contacted !== false) throw new Error("Unsafe runtime claims");
+    if (!Array.isArray(payload.offers) || payload.offers.length < 1) throw new Error("Missing offers");
+    if (!Array.isArray(payload.allocation.winner_merchant_ids) || payload.allocation.winner_merchant_ids.length < 1) throw new Error("Missing winners");
+    if (payload.verification.verified !== true || payload.verification.state !== "VERIFIED") throw new Error("Certificate was not verified");
+    if (payload.valid_provider_branch.first_invocation.post_count !== 1 || payload.valid_provider_branch.first_invocation.get_count !== 0) throw new Error("Invalid first provider proof");
+    if (payload.valid_provider_branch.cumulative_after_second.post_count !== 1 || payload.valid_provider_branch.cumulative_after_second.get_count !== 1) throw new Error("Invalid cumulative provider proof");
+    if (payload.tamper_branch.failure_code !== "CERTIFICATE_NOT_VERIFIED" || payload.tamper_branch.provider_counters.post_count !== 0 || payload.tamper_branch.provider_counters.get_count !== 0) throw new Error("Invalid tamper proof");
+    return payload;
+  }
+
+  function transition(next, result = null) {
+    if (!transitions[state].includes(next)) throw new Error(`Invalid UI transition: ${state} -> ${next}`);
+    state = next;
+    currentResult = result;
+    render();
+  }
+
+  function clearRuntimeEvidence() {
+    ["requested-quantity", "max-winners", "allocation-requested", "allocation-fulfilled", "winner-count", "allocation-total", "allocation-total-paise", "certificate-id", "provider-order-id"].forEach((field) => setText(`[data-field="${field}"]`, "—"));
+    const offerPlaceholder = document.createElement("p");
+    offerPlaceholder.className = "muted";
+    offerPlaceholder.textContent = "No current-run evidence.";
+    $("#offer-list").replaceChildren(offerPlaceholder);
+    const winnerPlaceholder = document.createElement("span");
+    winnerPlaceholder.className = "muted";
+    winnerPlaceholder.textContent = "No current-run evidence.";
+    $("#winner-ids").replaceChildren(winnerPlaceholder);
+    ["provider-first-resolution", "provider-second-resolution"].forEach((field) => setText(`[data-field="${field}"]`, "—"));
+    ["provider-first-post", "provider-first-get", "provider-cumulative-post", "provider-cumulative-get"].forEach((field) => setText(`[data-field="${field}"]`, "—"));
+    setText('[data-field="policy-status"]', "AWAITING RUN");
+    setText('[data-field="certificate-state"]', "AWAITING RUN");
+    setText('[data-field="verification-state"]', "AWAITING RUN");
+    setText('[data-field="verification-copy"]', "Awaiting local verification.");
+    setText('[data-field="governor-state"]', "AWAITING RUN");
+    setText('[data-field="governor-plan"]', "ExecutionPlanV1 / AWAITING RUN");
+    setText('[data-field="resolved-chain"]', "AWAITING PROOF  →  MONEY GOVERNOR  →  AWAITING RESERVATION");
+    setText('[data-field="provider-cumulative-state"]', "AWAITING RUN");
+    ["tamper-failure-code", "tamper-reservation", "tamper-idempotency", "tamper-post", "tamper-get"].forEach((field) => setText(`[data-field="${field}"]`, "—"));
+    setText('[data-field="tamper-altered-claim"]', "Awaiting reveal.");
+  }
+
+  function renderResult(data) {
+    setText('[data-field="requested-quantity"]', data.intent.requested_quantity);
+    setText('[data-field="max-winners"]', data.intent.max_winners);
+    setText('[data-field="allocation-requested"]', data.allocation.requested_quantity);
+    setText('[data-field="allocation-fulfilled"]', data.allocation.fulfilled_quantity);
+    setText('[data-field="winner-count"]', data.allocation.winner_count);
+    setText('[data-field="allocation-total"]', formatRupees(data.allocation.total_payment_paise));
+    setText('[data-field="allocation-total-paise"]', `${data.allocation.total_payment_paise} PAISE`);
+    setText('[data-field="certificate-identity"]', data.certificate.identity);
+    setText('[data-field="certificate-id"]', data.certificate.certificate_id);
+    setText('[data-field="certificate-state"]', data.certificate.state);
+    setText('[data-field="policy-status"]', data.policy.status);
+    setText('[data-field="verification-state"]', data.verification.state);
+    setText('[data-field="verification-copy"]', data.verification.copy);
+    setText('[data-field="governor-state"]', data.governor.state);
+    setText('[data-field="governor-plan"]', `${data.governor.execution_plan_identity} / ${data.governor.execution_plan_state}`);
+    setText('[data-field="resolved-chain"]', "VERIFIED CERTIFICATE  →  MONEY GOVERNOR  →  EXECUTION RESERVED");
+    setText('[data-field="provider-order-id"]', data.valid_provider_branch.controlled_order_id);
+    setText('[data-field="provider-first-resolution"]', data.valid_provider_branch.first_invocation.resolution);
+    setText('[data-field="provider-first-post"]', data.valid_provider_branch.first_invocation.post_count);
+    setText('[data-field="provider-first-get"]', data.valid_provider_branch.first_invocation.get_count);
+    setText('[data-field="provider-second-resolution"]', data.valid_provider_branch.second_invocation.resolution);
+    setText('[data-field="provider-cumulative-post"]', data.valid_provider_branch.cumulative_after_second.post_count);
+    setText('[data-field="provider-cumulative-get"]', data.valid_provider_branch.cumulative_after_second.get_count);
+    setText('[data-field="provider-cumulative-state"]', "CUMULATIVE AFTER SECOND CALL");
+    // Render provider facts as text, never as interpolated HTML.
+    $("#offer-list").replaceChildren(...data.offers.map((offer) => {
+      const row = document.createElement("div");
+      row.className = "offer-row";
+      const title = document.createElement("strong");
+      title.textContent = "MerchantOfferV2";
+      const details = document.createElement("span");
+      details.className = "offer-details";
+      [`merchant ${offer.merchant_id}`, `offer ${offer.offer_id}`, `capacity ${offer.capacity} / ${offer.unit_price_paise} paise per unit`].forEach((line, index) => {
+        if (index) details.append(document.createElement("br"));
+        details.append(document.createTextNode(line));
+      });
+      const status = document.createElement("span");
+      status.className = "offer-auth";
+      status.textContent = "AUTHENTICATED";
+      row.append(title, details, status);
+      return row;
+    }));
+    $("#winner-ids").replaceChildren(...data.allocation.winner_merchant_ids.map((id) => {
+      const item = document.createElement("span");
+      item.className = "id-item";
+      item.textContent = id;
+      return item;
+    }));
+  }
+
+  function renderTamper(data) {
+    setText('[data-field="tamper-failure-code"]', data.tamper_branch.failure_code);
+    setText('[data-field="tamper-altered-claim"]', data.tamper_branch.altered_claim);
+    setText('[data-field="tamper-reservation"]', data.tamper_branch.execution_reservation);
+    setText('[data-field="tamper-idempotency"]', data.tamper_branch.idempotency_record);
+    setText('[data-field="tamper-post"]', data.tamper_branch.provider_counters.post_count);
+    setText('[data-field="tamper-get"]', data.tamper_branch.provider_counters.get_count);
+  }
+
+  function render() {
+    document.body.dataset.state = state;
+    const labels = { IDLE: "READY TO RUN", RUNNING: "RUNNING", VALID_RESULT: "VERIFIED", TAMPER_REVEALED: "TAMPER CHECKED", ERROR: "UNAVAILABLE" };
+    setText("[data-state-label]", labels[state]);
+    const runButton = $("#run-demo");
+    const revealButton = $("#reveal-tamper");
+    const tamperFlow = $("#tamper-flow");
+    const tamperCounters = $("#tamper-counters");
+    runButton.disabled = state === State.RUNNING;
+    $$('[data-run-demo]').forEach((button) => { button.disabled = state === State.RUNNING; });
+    const complete = state === State.VALID_RESULT || state === State.TAMPER_REVEALED;
+    setText("[data-run-label]", state === State.RUNNING ? "Verifying the proof…" : complete ? "Run the demo again" : state === State.ERROR ? "Retry the demo" : "Run the authority demo");
+    revealButton.disabled = state !== State.VALID_RESULT;
+    revealButton.setAttribute("aria-expanded", String(state === State.TAMPER_REVEALED));
+    $(".proof-console").setAttribute("aria-busy", String(state === State.RUNNING));
+    $(".results-link").hidden = !complete;
+    tamperFlow.hidden = state !== State.TAMPER_REVEALED;
+    tamperCounters.hidden = state !== State.TAMPER_REVEALED;
+    if (state === State.IDLE) {
+      setText("#run-status", "Local. Deterministic. No credentials needed.");
+      setText("[data-console-status]", "Waiting for a verified certificate");
+      setText("[data-console-icon]", "○");
+    }
+    if (state === State.RUNNING) {
+      setText("#run-status", "Running the allocator, verifier, and Money Governor…");
+      setText("[data-console-status]", "Running the local authority demo…");
+      setText("[data-console-icon]", "↻");
+    }
+    if (complete) {
+      setText("#run-status", state === State.TAMPER_REVEALED ? "Tampered claim rejected. No provider action." : "Certificate verified. Explore the evidence below.");
+      setText("[data-console-status]", `${currentResult.allocation.fulfilled_quantity} units · ${currentResult.allocation.winner_count} winners · ${formatRupees(currentResult.allocation.total_payment_paise)}`);
+      setText("[data-console-icon]", "✓");
+    }
+    if (state === State.ERROR) {
+      setText("#run-status", "Demo unavailable. Check that the Python server is running, then retry.");
+      setText("[data-console-status]", "No verified result. Money authority stays closed.");
+      setText("[data-console-icon]", "×");
+    }
+    setText("#tamper-note", state === State.TAMPER_REVEALED ? "Evidence from the same run. No additional provider request." : complete ? "Ready to inspect. Reveal the altered claim from this same run." : "Run the demo first. This reveals the tamper evidence from that same run.");
+  }
+
+  async function runDemo() {
+    if (state === State.RUNNING) return;
+    transition(State.RUNNING);
+    clearRuntimeEvidence();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch("/api/authority-demo", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: controller.signal });
+      if (!response.ok) throw new Error(`Demo request failed: ${response.status}`);
+      const data = assertPresentation(await response.json());
+      renderResult(data);
+      renderTamper(data);
+      transition(State.VALID_RESULT, data);
+    } catch (error) {
+      currentResult = null;
+      clearRuntimeEvidence();
+      transition(State.ERROR);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  $("#run-demo").addEventListener("click", runDemo);
+  $$("[data-run-demo]").forEach((button) => button.addEventListener("click", () => {
+    closeMenu();
+    $("#demo").scrollIntoView({ behavior: motionPaused || reducedMotion.matches ? "instant" : "smooth", block: "start" });
+    runDemo();
+  }));
+  $("#reveal-tamper").addEventListener("click", () => {
+    if (currentResult && state === State.VALID_RESULT) transition(State.TAMPER_REVEALED, currentResult);
+  });
+  setupExperience();
+  render();
+})();

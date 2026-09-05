@@ -1,1 +1,1 @@
-"""Judge-facing presentation boundary for the deterministic CLEAR demo."""
+"""CLEAR judge-facing presentation surface."""
