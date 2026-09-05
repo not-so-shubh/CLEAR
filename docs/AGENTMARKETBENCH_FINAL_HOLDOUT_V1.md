@@ -345,6 +345,24 @@ freezes a distinct replacement protocol and output path,
 `benchmarks/agentmarketbench_v1/replacement_final_holdout_v1/`. Its seeds are
 selected deterministically from the remotely verified R1 repair commit
 `a4fc224ba9b10b518753d05237ab7d56d737943b`. R2 does not generate, execute, or
-inspect any replacement case; execution remains prohibited until the R2
-commit is externally reviewed, pushed, and remotely verified. The historical
-original final partition and runner remain permanently retired.
+inspect any replacement case; execution remained prohibited until the R2
+commit was externally reviewed, pushed, and remotely verified. That gate was
+subsequently satisfied, and the one authorized replacement execution completed
+successfully as recorded below. The historical original final partition and
+runner remain permanently retired.
+
+## Reviewed replacement execution (recorded in R3)
+
+The R2 pre-holdout protocol was frozen at source commit
+`6eadd5b6eb737649ec35747a73d90b69c403e24f`. After external review, push, and
+remote verification, the selected replacement partition was opened exactly
+once and completed all 10,000 cases. The successful stored evidence is at
+`benchmarks/agentmarketbench_v1/replacement_final_holdout_v1/` and passed the
+frozen stored-evidence verifier. See [the replacement final results]
+(AGENTMARKETBENCH_REPLACEMENT_FINAL_RESULTS_V1.md) for the judge-facing
+summary and claim boundaries.
+
+This does not make attempt #1 valid: its 3,000 persisted cases remain excluded
+from every replacement aggregate, and the original partition remains
+permanently retired. The replacement holdout is closed and must never be
+rerun.

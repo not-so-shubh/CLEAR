@@ -11,11 +11,36 @@ checks, and seed-sequence hashing. No replacement scenario, catalog,
 inventory, allocation, oracle output, metric, case digest, or result may be
 generated, inspected, estimated, or compared during this slice.
 
-**DO NOT RUN the replacement holdout until the R2 source commit is externally
-reviewed, pushed, and remotely verified.** The command below is a template
-for a future authorized execution. The R1 selection anchor is already
-committed, pushed, externally reviewed, and remotely verified; it is not the
-future R2 evaluated source commit.
+**Historical R2 gate (satisfied):** From R2's pre-execution perspective, the
+replacement holdout could not be run until the R2 source commit was externally
+reviewed, pushed, and remotely verified. That gate was satisfied before the one
+authorized execution, which subsequently completed exactly once. The evaluated
+source commit was `6eadd5b6eb737649ec35747a73d90b69c403e24f`; the historical
+command below is retained for provenance only and **MUST NOT be executed again**.
+The R1 selection anchor was already committed, pushed, externally reviewed, and
+remotely verified at that stage.
+
+## Current post-execution status
+
+R2 pre-holdout freeze completed at evaluated source commit
+`6eadd5b6eb737649ec35747a73d90b69c403e24f`. External review, push, and remote
+verification occurred before the gate was satisfied. The one authorized
+replacement execution then completed exactly once with `case_count = 10000`.
+The immutable stored output is
+`benchmarks/agentmarketbench_v1/replacement_final_holdout_v1/`; its manifest
+and evidence commitments are:
+
+- manifest SHA-256: `27c8cc724634cae4a587a52e5687b76fefb47500b8261244cf3762bb7099c3a`
+- semantic root SHA-256: `168eb51dc9c2324db3e9b571bc6c2cefa4211e53ed3b56f4bf5d594713018ebb`
+- timing root SHA-256: `6e727815537b889ca84587ac143c931d2170ea93ce0ee2c95af7da454afeab1f`
+- evidence root SHA-256: `9b9d3fd24d0efe0fed26cdaf63fc5ff6ff4b843ad8061d70c09232c021500c51`
+
+The stored-evidence verifier passes, and the output is now immutable evidence.
+The replacement holdout is permanently closed: **DO NOT RERUN THE REPLACEMENT
+HOLDOUT.** See [the replacement final results]
+(AGENTMARKETBENCH_REPLACEMENT_FINAL_RESULTS_V1.md) for the human-readable
+summary. The protocol and chronology below remain the historical R2 freeze
+record; R2 itself did not open the partition.
 
 ## Incident lineage and permanent partition boundaries
 
@@ -197,9 +222,10 @@ The real replacement output path is exactly:
 benchmarks/agentmarketbench_v1/replacement_final_holdout_v1/
 ```
 
-It must not already exist. The runner resolves the repository root internally
-and exposes no output-directory option. It must never reuse the preserved
-original partial directory.
+At R2 preflight time this path had to be absent; it now contains the completed
+immutable evidence bundle. The runner resolved the repository root internally
+and exposed no output-directory option. It did not reuse the preserved original
+partial directory.
 
 `AgentMarketBenchReplacementFinalEvidenceWriterV1` receives an output
 directory and evaluated source commit, with no caller-supplied final seed
@@ -372,35 +398,39 @@ generation, preflight requires all of the following:
 11. The selection preimage, full SHA-256, block index, and derived start
     recompute exactly from the frozen constants above.
 
-A failed preflight creates no output directory and invokes no writer or
-generator. Only after every check passes may the writer create the output
-path and the runner generate the first replacement case. External review,
-push, and remote verification are required before execution; local Git
-preflight does not establish those external facts.
+A failed preflight created no output directory and invoked no writer or
+generator. Only after every check passed could the writer create the output
+path and the runner generate the first replacement case. External review, push,
+and remote verification were required before the one authorized execution; that
+gate was satisfied. These are historical R2 controls, and no second execution
+is authorized.
 
-## Future execution command and fixed orchestration
+## Historical one-time execution command and fixed orchestration
 
-**DO NOT RUN this template during R2.** Use the exact externally reviewed,
-pushed, and remotely verified R2 commit as `<R2-COMMIT-SHA>` in a future
-authorized execution:
+The command below is retained only as the historical command for the single
+authorized replacement execution. The external-review gate was satisfied before
+it ran, and that execution completed all 10,000 cases from evaluated source
+commit `6eadd5b6eb737649ec35747a73d90b69c403e24f`. **The command MUST NOT be
+executed again.**
 
 ```sh
+# Historical record only; do not execute again.
 python -m clear_market.agentmarketbench.replacement_final_holdout \
-  --expected-source-commit <R2-COMMIT-SHA>
+  --expected-source-commit 6eadd5b6eb737649ec35747a73d90b69c403e24f
 ```
 
 There is no CLI output-directory option. After successful preflight, the
-runner visits every frozen replacement seed in tuple order, generates exactly
-one case, calls the frozen `run_agent_market_bench_case_v1` once using the
-real default `time.perf_counter_ns` timing path, adds exactly one CaseRun to
-the replacement writer, and releases it before continuing. It never
-materializes all 10,000 CaseRuns. It provides no alternate seeds, skipped
-seeds, resume, retry, parallel generation, or wall-clock-timeout accepted
-result.
+runner visited every frozen replacement seed in tuple order, generated exactly
+one case, called the frozen `run_agent_market_bench_case_v1` once using the
+real default `time.perf_counter_ns` timing path, added exactly one CaseRun to
+the replacement writer, and released it before continuing. It never
+materialized all 10,000 CaseRuns. That execution provided no alternate seeds,
+skipped seeds, resume, retry, parallel generation, or wall-clock-timeout
+accepted result.
 
 The progress callback receives only `(processed_count, 10_000)`. The CLI
-emits observational progress after every completed 500-case shard. On
-success it prints these concise labels, with the computed values:
+emitted observational progress after every completed 500-case shard. On
+success it printed these concise labels, with the computed values:
 
 ```text
 case_count=10000
@@ -411,17 +441,18 @@ evidence_root_sha256=<stored-transport root>
 manifest_sha256=<SHA-256 of canonical manifest bytes>
 ```
 
-It prints no winner, interpretation, ranking, or p-value. A failed preflight
-exits nonzero.
+It printed no winner, interpretation, ranking, or p-value. A failed preflight
+exited nonzero.
 
 ## Failure policy: stop and preserve
 
-**Once the first replacement case has been generated, ANY exception means
-STOP.** Preserve the partial replacement directory exactly as left. Do not
-delete it, clean it up, auto-retry, resume, skip a failing seed, change source,
-change schema, change metrics, change statistics, or choose another
-replacement partition. Return to the external reviewer before any second
-execution decision. No resume or retry code is part of this protocol.
+**For the one authorized execution, once the first replacement case had been
+generated, ANY exception meant STOP.** The partial replacement directory was
+to be preserved exactly as left. The protocol prohibited deleting it, cleaning
+it up, auto-retrying, resuming, skipping a failing seed, changing source,
+changing schema, changing metrics, changing statistics, or choosing another
+replacement partition. No second execution is authorized, and no resume or
+retry code is part of this protocol.
 
 During R2, accidentally generating a replacement seed, changing any
 failed-attempt byte, obtaining a different selection derivation, failing a
@@ -441,8 +472,8 @@ verify_agent_market_bench_replacement_final_evidence_v1(
 ) -> AgentMarketBenchReplacementFinalManifestV1
 ```
 
-After a future completed execution, verify stored evidence from the
-repository root as follows:
+The completed stored evidence can be verified read-only from the repository root
+as follows:
 
 ```python
 from pathlib import Path
@@ -459,8 +490,8 @@ manifest = verify_agent_market_bench_replacement_final_evidence_v1(
 An externally retained expected replacement manifest can be supplied via
 `expected_manifest=`. Verification reads stored evidence only: it generates
 no cases, runs no methods or oracle, and calls no payment code, AI, or
-network service. R2 uses development or handcrafted fixtures for verifier
-tests; it does not verify or inspect real replacement cases.
+network service. During R2, verifier tests used development or handcrafted
+fixtures; R2 itself did not verify or inspect real replacement cases.
 
 Verification requires the exact completed 44-file inventory and rejects:
 
