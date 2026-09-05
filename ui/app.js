@@ -412,6 +412,197 @@
     }
   }
 
+  const AIState = LiveState;
+  const aiActionLabels = Object.freeze({
+    IDLE: "NOT RUN · USER INITIATED",
+    RUNNING: "RUNNING · USER INITIATED",
+    SUCCESS: "CURRENT RUN · VALIDATED",
+    FAILED: "CURRENT RUN · NOT VALIDATED",
+    UNAVAILABLE: "CURRENT RUN · NOT VALIDATED",
+  });
+  const aiFailureHeadings = Object.freeze({
+    LIVE_AI_UNAVAILABLE: "LIVE AI UNAVAILABLE",
+    LIVE_AI_BUSY: "ANOTHER AI TASK IS RUNNING",
+    LIVE_AI_INTERNAL_FAILURE: "AI EVIDENCE FAILED CLOSED",
+    PROVIDER_AUTHENTICATION_FAILURE: "PROVIDER AUTHENTICATION FAILED",
+    PROVIDER_RATE_LIMITED: "PROVIDER RATE LIMITED",
+    PROVIDER_TIMEOUT: "PROVIDER REQUEST TIMED OUT",
+    PROVIDER_UNAVAILABLE: "PROVIDER UNAVAILABLE",
+    PROVIDER_REQUEST_REJECTED: "PROVIDER REQUEST REJECTED",
+    PROVIDER_RESPONSE_REJECTED: "PROVIDER RESPONSE REJECTED",
+    INVALID_PROVIDER_RESPONSE: "INVALID PROVIDER RESPONSE",
+    STRICT_PROPOSAL_PARSE_FAILURE: "STRICT PROPOSAL PARSE FAILED",
+    STRICT_PROPOSAL_REJECTION: "STRICT PROPOSAL REJECTED",
+    MERCHANT_CONTEXT_REJECTION: "MERCHANT CONTEXT REJECTED",
+    DETERMINISTIC_MERCHANT_REJECTION: "DETERMINISTIC MERCHANT RULES REJECTED",
+    CERTIFICATE_NOT_VERIFIED: "CERTIFICATE NOT VERIFIED",
+    STRICT_EXPLANATION_PARSE_FAILURE: "STRICT EXPLANATION PARSE FAILED",
+    STRICT_EXPLANATION_REJECTION: "STRICT EXPLANATION REJECTED",
+    EXPLANATION_CITATION_REJECTION: "CITATION REFERENCES REJECTED",
+  });
+  const aiTasks = Object.freeze({
+    merchant: {
+      button: "#run-merchant-ai",
+      endpoint: "/api/ai-merchant-proposal-evidence",
+      result: "#merchant-ai-result",
+      status: "#merchant-ai-status",
+      successSelector: "[data-merchant-success]",
+      fieldAttribute: "data-merchant-field",
+      version: "clear-ai-merchant-proposal-evidence-v1",
+      task: "MERCHANT_PROPOSAL",
+      idleLabel: "Run merchant proposal AI",
+      retryLabel: "Run a new merchant proposal",
+      runningLabel: "Running merchant proposal AI…",
+      state: AIState.IDLE,
+    },
+    explanation: {
+      button: "#run-explanation-ai",
+      endpoint: "/api/ai-certificate-explanation-evidence",
+      result: "#explanation-ai-result",
+      status: "#explanation-ai-status",
+      successSelector: "[data-explanation-success]",
+      fieldAttribute: "data-explanation-field",
+      version: "clear-ai-certificate-explanation-evidence-v1",
+      task: "CERTIFICATE_EXPLANATION",
+      idleLabel: "Run certificate explanation AI",
+      retryLabel: "Run a new certificate explanation",
+      runningLabel: "Running certificate explanation AI…",
+      state: AIState.IDLE,
+    },
+  });
+  let activeAITask = null;
+
+  function aiField(task, field) {
+    return $(`[${task.fieldAttribute}="${field}"]`);
+  }
+
+  function setAIField(task, field, value) {
+    const element = aiField(task, field);
+    if (element) element.textContent = String(value);
+  }
+
+  function clearAIResult(task) {
+    const result = $(task.result);
+    result.hidden = true;
+    result.removeAttribute("data-result");
+    $$(task.successSelector).forEach((element) => { element.hidden = true; });
+    setAIField(task, "heading", "CURRENT-RUN RESULT");
+    setAIField(task, "message", "");
+    setAIField(task, "error-code", "");
+    aiField(task, "error-code").hidden = true;
+    if (task.task === "MERCHANT_PROPOSAL") {
+      ["parse", "decision", "lines", "boundary"].forEach((field) => setAIField(task, field, "—"));
+    } else {
+      setAIField(task, "claims-count", "—");
+      setAIField(task, "displayed-claims-count", "—");
+      setAIField(task, "digest", "—");
+      aiField(task, "claims").replaceChildren();
+    }
+  }
+
+  function assertAIPresentation(task, payload) {
+    if (!payload || payload.presentation_version !== task.version || payload.mode !== "CURRENT_RUN") throw new Error("Invalid AI evidence response");
+    if (payload.provider_protocol !== "OPENAI_COMPATIBLE" || payload.provider_identity !== "EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER" || payload.authority !== "ADVISORY_ONLY") throw new Error("Invalid AI boundary facts");
+    if (![AIState.SUCCESS, AIState.FAILED, AIState.UNAVAILABLE].includes(payload.result) || typeof payload.provider_invoked !== "boolean") throw new Error("Invalid AI evidence state");
+    if (payload.result !== AIState.SUCCESS) {
+      if (!(payload.code in aiFailureHeadings) || typeof payload.message !== "string" || !payload.message) throw new Error("Invalid AI failure response");
+      return payload;
+    }
+    if (payload.provider_invoked !== true || payload.task !== task.task || typeof payload.provider_name !== "string" || typeof payload.model !== "string") throw new Error("Invalid successful AI facts");
+    if (task.task === "MERCHANT_PROPOSAL") {
+      if (payload.proposal_parse !== "ACCEPTED" || !["OFFER", "NO_OFFER"].includes(payload.decision) || !Number.isInteger(payload.proposal_line_count) || payload.proposal_line_count < 0) throw new Error("Invalid merchant proposal facts");
+      if (payload.deterministic_merchant_boundary !== (payload.decision === "OFFER" ? "ACCEPTED" : "NO_OFFER")) throw new Error("Invalid merchant boundary facts");
+    } else {
+      if (payload.certificate_verified_before_ai !== true || payload.citation_references_validated !== true || !/^[0-9a-f]{64}$/.test(payload.certificate_digest_sha256)) throw new Error("Invalid explanation verification facts");
+      if (!Number.isInteger(payload.claims_count) || payload.claims_count < 1 || !Number.isInteger(payload.displayed_claims_count) || payload.displayed_claims_count < 0 || payload.displayed_claims_count > payload.claims_count) throw new Error("Invalid explanation claim counts");
+      if (!Array.isArray(payload.claims) || payload.displayed_claims_count !== payload.claims.length || payload.claims.some((claim) => !claim || typeof claim.text !== "string" || !claim.text || !Array.isArray(claim.citation_ids) || claim.citation_ids.length < 1 || claim.citation_ids.some((citation) => typeof citation !== "string" || citation.startsWith("allocation.line.")))) throw new Error("Invalid explanation claims");
+    }
+    return payload;
+  }
+
+  function renderAIResult(task, data) {
+    const result = $(task.result);
+    result.hidden = false;
+    result.dataset.result = data.result;
+    if (data.result !== AIState.SUCCESS) {
+      setAIField(task, "heading", aiFailureHeadings[data.code]);
+      setAIField(task, "error-code", data.code);
+      aiField(task, "error-code").hidden = false;
+      setAIField(task, "message", data.message);
+      return;
+    }
+    $$(task.successSelector).forEach((element) => { element.hidden = false; });
+    setAIField(task, "heading", "PRODUCTION AI BOUNDARY VALIDATED");
+    setAIField(task, "message", "Strict production acceptance completed for this explicit current-run action.");
+    if (task.task === "MERCHANT_PROPOSAL") {
+      setAIField(task, "parse", data.proposal_parse);
+      setAIField(task, "decision", data.decision);
+      setAIField(task, "lines", `${data.proposal_line_count} PROPOSAL LINE${data.proposal_line_count === 1 ? "" : "S"}`);
+      setAIField(task, "boundary", data.deterministic_merchant_boundary);
+      return;
+    }
+    setAIField(task, "claims-count", data.claims_count);
+    setAIField(task, "displayed-claims-count", data.displayed_claims_count);
+    setAIField(task, "digest", `CERTIFICATE DIGEST ${data.certificate_digest_sha256}`);
+    const claims = data.claims.map((claim) => {
+      const item = document.createElement("article");
+      item.className = "ai-claim";
+      const text = document.createElement("p");
+      text.textContent = claim.text;
+      const citations = document.createElement("small");
+      citations.append(document.createTextNode(`CITATIONS · ${claim.citation_ids.join(" · ")}`));
+      item.append(text, citations);
+      return item;
+    });
+    aiField(task, "claims").replaceChildren(...claims);
+  }
+
+  function renderAIStates() {
+    Object.entries(aiTasks).forEach(([taskId, task]) => {
+      const running = activeAITask === taskId;
+      const button = $(task.button);
+      button.disabled = activeAITask !== null;
+      button.setAttribute("aria-busy", String(running));
+      setText(`[data-ai-status="${taskId}"]`, aiActionLabels[task.state]);
+      setText(`[data-ai-button-label="${taskId}"]`, running ? task.runningLabel : task.state === AIState.IDLE ? task.idleLabel : task.retryLabel);
+      if (running) setText(task.status, `Running ${taskId === "merchant" ? "the merchant proposal" : "the certificate explanation"} production AI boundary. No economic or financial action is being authorized.`);
+      else if (activeAITask !== null) setText(task.status, "Another current-run AI evidence task is running; this action is temporarily disabled.");
+      else if (task.state === AIState.IDLE) setText(task.status, "No current-run provider claim.");
+      else if (task.state === AIState.SUCCESS) setText(task.status, "Current-run provider output passed this task’s strict production boundary; its authority remains advisory only.");
+      else if (task.state === AIState.FAILED) setText(task.status, "The current AI evidence attempt failed closed. No prior successful result is retained.");
+      else setText(task.status, "The optional AI evidence action is unavailable. The deterministic demo is unaffected.");
+    });
+  }
+
+  async function runAIEvidence(taskId) {
+    if (activeAITask !== null) return;
+    const task = aiTasks[taskId];
+    clearAIResult(task);
+    task.state = AIState.RUNNING;
+    activeAITask = taskId;
+    renderAIStates();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 65000);
+    try {
+      const response = await fetch(task.endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: controller.signal });
+      const data = assertAIPresentation(task, await response.json());
+      if (data.result === AIState.SUCCESS && !response.ok) throw new Error("Invalid successful response status");
+      task.state = data.result;
+      renderAIResult(task, data);
+    } catch (error) {
+      task.state = AIState.UNAVAILABLE;
+      renderAIResult(task, {
+        result: AIState.UNAVAILABLE,
+        code: "LIVE_AI_INTERNAL_FAILURE",
+        message: "The current-run AI action did not return a valid presentation response.",
+      });
+    } finally {
+      window.clearTimeout(timeout);
+      activeAITask = null;
+      renderAIStates();
+    }
+  }
+
   $("#run-demo").addEventListener("click", runDemo);
   $$("[data-run-demo]").forEach((button) => button.addEventListener("click", () => {
     closeMenu();
@@ -422,7 +613,10 @@
     if (currentResult && state === State.VALID_RESULT) transition(State.TAMPER_REVEALED, currentResult);
   });
   $("#run-live-evidence").addEventListener("click", runLiveEvidence);
+  $("#run-merchant-ai").addEventListener("click", () => runAIEvidence("merchant"));
+  $("#run-explanation-ai").addEventListener("click", () => runAIEvidence("explanation"));
   setupExperience();
   render();
   renderLiveState();
+  renderAIStates();
 })();

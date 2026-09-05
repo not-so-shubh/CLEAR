@@ -141,15 +141,22 @@ minimum prices, source commitments, and related invariants before producing `Mer
 Signing and verification create `SignedMerchantOfferV2` evidence bound to a configured merchant
 identity.
 
-This path is implemented and tested with controlled fake providers. No live merchant-proposal
-exercise is claimed.
+This path is implemented and tested with controlled fake providers. CLEAR's merchant-proposal task
+was exercised through an externally supplied OpenAI-compatible provider. The reviewed run
+returned a schema-valid `NO_OFFER` and passed the strict advisory production boundary. This does
+not demonstrate signing, authentication, admission, allocation, winner selection, or payment
+authorization.
 
 ### 4.3 Certificate explanation
 
 `explain_verified_allocation_certificate_v1` is an advisory presentation layer over certificate
 evidence that has already passed independent verification. Its parsed output cannot mutate the
 certificate, allocation, execution authorization, or provider plan. It is implemented and tested
-with fakes; no live run is claimed.
+with fakes. CLEAR's certificate-explanation task was exercised through an externally supplied
+OpenAI-compatible provider after independent certificate verification. The reviewed run returned
+advisory claims whose citation references passed the implemented validation boundary. This does
+not mean AI verified the certificate, natural-language entailment was proven, explanation prose is
+authoritative, or allocation or money authority changed.
 
 ### 4.4 Provider adapter and live profile
 

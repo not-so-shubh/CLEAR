@@ -10,6 +10,12 @@ from pathlib import Path
 from threading import Lock
 from urllib.parse import urlparse
 
+from .ai_evidence import (
+    build_ai_certificate_explanation_evidence,
+    build_ai_merchant_proposal_evidence,
+    explanation_unavailable_presentation,
+    merchant_unavailable_presentation,
+)
 from .presentation import PresentationError, build_authority_demo_presentation
 from .razorpay_evidence import (
     build_razorpay_test_order_evidence,
@@ -18,6 +24,15 @@ from .razorpay_evidence import (
 
 UI_ROOT = Path(__file__).resolve().parent
 _LIVE_EVIDENCE_LOCK = Lock()
+_LIVE_AI_EVIDENCE_LOCK = Lock()
+
+
+def _live_result_status(payload: dict[str, object]) -> HTTPStatus:
+    if payload["result"] == "SUCCESS":
+        return HTTPStatus.OK
+    if payload["result"] == "UNAVAILABLE":
+        return HTTPStatus.SERVICE_UNAVAILABLE
+    return HTTPStatus.BAD_GATEWAY
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -36,6 +51,8 @@ class _Handler(BaseHTTPRequestHandler):
         requested = urlparse(self.path).path
         if requested not in {
             "/api/authority-demo",
+            "/api/ai-certificate-explanation-evidence",
+            "/api/ai-merchant-proposal-evidence",
             "/api/razorpay-test-order-evidence",
         }:
             self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -46,6 +63,44 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if length:
             self.rfile.read(length)
+        ai_endpoints = {
+            "/api/ai-merchant-proposal-evidence": (
+                build_ai_merchant_proposal_evidence,
+                merchant_unavailable_presentation,
+                "Merchant proposal",
+            ),
+            "/api/ai-certificate-explanation-evidence": (
+                build_ai_certificate_explanation_evidence,
+                explanation_unavailable_presentation,
+                "Certificate explanation",
+            ),
+        }
+        if requested in ai_endpoints:
+            builder, unavailable, task_name = ai_endpoints[requested]
+            if not _LIVE_AI_EVIDENCE_LOCK.acquire(blocking=False):
+                self._send_json(
+                    unavailable(
+                        "LIVE_AI_BUSY",
+                        "Another current-run AI evidence request is already running.",
+                    ),
+                    HTTPStatus.CONFLICT,
+                )
+                return
+            try:
+                try:
+                    payload = builder()
+                except Exception:
+                    payload = unavailable(
+                        "LIVE_AI_INTERNAL_FAILURE",
+                        f"The {task_name.lower()} evidence path failed closed.",
+                    )
+                    status = HTTPStatus.INTERNAL_SERVER_ERROR
+                else:
+                    status = _live_result_status(payload)
+                self._send_json(payload, status)
+            finally:
+                _LIVE_AI_EVIDENCE_LOCK.release()
+            return
         if requested == "/api/razorpay-test-order-evidence":
             if not _LIVE_EVIDENCE_LOCK.acquire(blocking=False):
                 self._send_json(
@@ -66,12 +121,7 @@ class _Handler(BaseHTTPRequestHandler):
                     )
                     status = HTTPStatus.INTERNAL_SERVER_ERROR
                 else:
-                    if payload["result"] == "SUCCESS":
-                        status = HTTPStatus.OK
-                    elif payload["result"] == "UNAVAILABLE":
-                        status = HTTPStatus.SERVICE_UNAVAILABLE
-                    else:
-                        status = HTTPStatus.BAD_GATEWAY
+                    status = _live_result_status(payload)
                 self._send_json(payload, status)
             finally:
                 _LIVE_EVIDENCE_LOCK.release()
