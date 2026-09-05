@@ -1509,6 +1509,24 @@ body[data-view="clearing"] .site-header {
   margin-top: 17px;
 }
 
+.runtime-razorpay-action {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid #3c4234;
+}
+
+.runtime-razorpay-action .button {
+  margin-top: 18px;
+}
+
+.runtime-razorpay-result {
+  margin-top: 20px;
+}
+
+.runtime-razorpay-result[hidden] {
+  display: none;
+}
+
 @media (max-width: 760px) {
   .runtime-authority-card {
     padding: 24px 18px;

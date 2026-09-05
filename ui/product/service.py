@@ -95,9 +95,29 @@ from clear_market.mechanism.v2 import (
     QUANTITY_COST_SOFT_OBJECTIVE_V2_VERSION,
     allocate_market_v2,
 )
+from clear_market.payments.razorpay import (
+    RazorpayOrderError,
+    RazorpayOrderFailureCode,
+    RazorpayOrderResolutionV1,
+    RazorpayOrderResultV1,
+    RazorpayOrderStatusV1,
+    RazorpayOrderTransportV1,
+    RazorpayOrderV1,
+    RazorpayTestCredentialsV1,
+    create_razorpay_test_order_v1,
+    razorpay_order_create_fingerprint_v1,
+)
+from clear_market.payments.recovery import (
+    RazorpayOrderRecoveryDispositionV1,
+    RazorpayOrderRecoveryError,
+    RazorpayOrderRecoveryResultV1,
+    recover_razorpay_test_order_v1,
+)
 from clear_market.persistence import (
     ExecutionReservationV1,
+    IdempotencyRecordV1,
     PersistenceError,
+    ProviderReferenceV1,
     SQLiteFinancialLedgerV1,
 )
 from clear_market.persistence.sqlite import (
@@ -161,6 +181,11 @@ _CANDIDATE_LINE_FIELDS = frozenset(
         "proposed_unit_price_paise",
     }
 )
+_RAZORPAY_SCOPE = "Razorpay Test Mode order creation and existing-order resolution only."
+_RAZORPAY_LIMITATIONS = (
+    "This does not demonstrate payment capture, customer payment, webhook handling, "
+    "transfers, settlement, refunds, fulfillment, or real-money movement."
+)
 
 
 class ProductErrorCode(StrEnum):
@@ -180,6 +205,7 @@ class ProductErrorCode(StrEnum):
     PROPOSAL_NOT_SUBMITTABLE = "PROPOSAL_NOT_SUBMITTABLE"
     MARKET_NOT_CLOSED = "MARKET_NOT_CLOSED"
     ALLOCATION_NOT_EXECUTABLE = "ALLOCATION_NOT_EXECUTABLE"
+    EXECUTION_NOT_AUTHORIZED = "EXECUTION_NOT_AUTHORIZED"
 
 
 class ProductServiceError(ValueError):
@@ -207,6 +233,12 @@ class _ClosedAuthorityContext:
     certificate: AllocationCertificateV2
     trusted_identities: tuple[MerchantSigningIdentityV2, ...]
     verification: AllocationCertificateVerificationResultV2
+
+
+@dataclass(frozen=True)
+class _RazorpayLedgerState:
+    create_intent_exists: bool
+    provider_order_id: str | None
 
 
 def _new_uuid() -> str:
@@ -2521,18 +2553,33 @@ class ProductService:
         context: _ClosedAuthorityContext,
         record: ExecutionAuthorityRecord,
         decision_time: datetime,
-    ) -> None:
+        plan: ExecutionPlanV1,
+    ) -> _RazorpayLedgerState:
         if not self._financial_ledger_path.is_file():
             raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
         try:
             ledger_uri = f"{self._financial_ledger_path.resolve().as_uri()}?mode=ro"
-            expected_columns = {
+            reservation_columns = {
                 "execution_id",
                 "certificate_digest_version",
                 "certificate_digest_sha256",
                 "market_id",
                 "execution_request_fingerprint_sha256",
                 "reserved_at",
+            }
+            reference_columns = {
+                "provider_name",
+                "reference_kind",
+                "reference_id",
+                "execution_id",
+                "recorded_at",
+            }
+            idempotency_columns = {
+                "namespace",
+                "idempotency_key",
+                "request_fingerprint_sha256",
+                "execution_id",
+                "recorded_at",
             }
             with closing(
                 sqlite3.connect(
@@ -2551,7 +2598,7 @@ class ProductService:
                     raise ValueError("financial ledger schema version is invalid")
                 _verify_schema(connection)
                 _verify_foreign_key_integrity(connection)
-                rows = connection.execute(
+                reservation_rows = connection.execute(
                     """
                     SELECT * FROM clear_execution_reservations_v1
                     WHERE execution_id = ?
@@ -2559,9 +2606,36 @@ class ProductService:
                     """,
                     (record.execution_id,),
                 ).fetchall()
-            if len(rows) != 1 or set(rows[0].keys()) != expected_columns:
+                reference_rows = connection.execute(
+                    """
+                    SELECT * FROM clear_provider_references_v1
+                    WHERE execution_id = ?
+                      AND provider_name = 'razorpay'
+                      AND reference_kind = 'order'
+                    LIMIT 2
+                    """,
+                    (record.execution_id,),
+                ).fetchall()
+                idempotency_rows = connection.execute(
+                    """
+                    SELECT * FROM clear_idempotency_records_v1
+                    WHERE namespace = 'razorpay.order.create.v1'
+                      AND idempotency_key = ?
+                    LIMIT 2
+                    """,
+                    (record.execution_id,),
+                ).fetchall()
+            if len(reservation_rows) != 1 or set(reservation_rows[0].keys()) != reservation_columns:
                 raise ValueError("financial reservation row is missing or malformed")
-            row = rows[0]
+            if len(reference_rows) > 1 or any(
+                set(row.keys()) != reference_columns for row in reference_rows
+            ):
+                raise ValueError("Razorpay provider reference is conflicting or malformed")
+            if len(idempotency_rows) > 1 or any(
+                set(row.keys()) != idempotency_columns for row in idempotency_rows
+            ):
+                raise ValueError("Razorpay create intent is conflicting or malformed")
+            row = reservation_rows[0]
             reservation = ExecutionReservationV1(
                 execution_id=row["execution_id"],
                 certificate_digest_version=row["certificate_digest_version"],
@@ -2570,6 +2644,26 @@ class ProductService:
                 execution_request_fingerprint_sha256=(row["execution_request_fingerprint_sha256"]),
                 reserved_at=_persisted_datetime(row["reserved_at"]),
             )
+            reference = None
+            if reference_rows:
+                reference_row = reference_rows[0]
+                reference = ProviderReferenceV1(
+                    provider_name=reference_row["provider_name"],
+                    reference_kind=reference_row["reference_kind"],
+                    reference_id=reference_row["reference_id"],
+                    execution_id=reference_row["execution_id"],
+                    recorded_at=_persisted_datetime(reference_row["recorded_at"]),
+                )
+            create_intent = None
+            if idempotency_rows:
+                intent_row = idempotency_rows[0]
+                create_intent = IdempotencyRecordV1(
+                    namespace=intent_row["namespace"],
+                    idempotency_key=intent_row["idempotency_key"],
+                    request_fingerprint_sha256=intent_row["request_fingerprint_sha256"],
+                    execution_id=intent_row["execution_id"],
+                    recorded_at=_persisted_datetime(intent_row["recorded_at"]),
+                )
         except (
             PersistenceError,
             sqlite3.Error,
@@ -2589,6 +2683,38 @@ class ProductService:
             or reservation.reserved_at != decision_time
         ):
             raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        expected_order_fingerprint = razorpay_order_create_fingerprint_v1(plan)
+        if create_intent is not None and (
+            create_intent.namespace != "razorpay.order.create.v1"
+            or create_intent.idempotency_key != plan.execution_id
+            or create_intent.request_fingerprint_sha256 != expected_order_fingerprint
+            or create_intent.execution_id != plan.execution_id
+            or create_intent.recorded_at != decision_time
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        if reference is not None:
+            if (
+                create_intent is None
+                or reference.provider_name != "razorpay"
+                or reference.reference_kind != "order"
+                or reference.execution_id != plan.execution_id
+                or reference.recorded_at != decision_time
+            ):
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            try:
+                RazorpayOrderV1(
+                    execution_id=plan.execution_id,
+                    provider_order_id=reference.reference_id,
+                    amount=plan.order_amount,
+                    receipt=plan.execution_id,
+                    status=RazorpayOrderStatusV1.CREATED,
+                )
+            except (TypeError, ValueError, ValidationError) as error:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        return _RazorpayLedgerState(
+            create_intent_exists=create_intent is not None,
+            provider_order_id=None if reference is None else reference.reference_id,
+        )
 
     def _merchant_display_names(
         self,
@@ -2681,6 +2807,42 @@ class ProductService:
             "provider_action": "NOT DEMONSTRATED",
         }
 
+    @staticmethod
+    def _razorpay_order_presentation(
+        plan: ExecutionPlanV1,
+        ledger_state: _RazorpayLedgerState,
+    ) -> dict[str, object]:
+        if ledger_state.provider_order_id is not None:
+            return {
+                "state": "ORDER_REFERENCE_PERSISTED",
+                "provider_order_id": ledger_state.provider_order_id,
+                "execution_id": plan.execution_id,
+                "order_amount_paise": plan.order_amount.amount_paise,
+                "currency": "INR",
+                "receipt": plan.execution_id,
+                "provider_status_refreshed": False,
+                "scope": _RAZORPAY_SCOPE,
+                "limitations": _RAZORPAY_LIMITATIONS,
+            }
+        if ledger_state.create_intent_exists:
+            return {
+                "state": "RECOVERY_REQUIRED",
+                "provider_status_refreshed": False,
+                "message": (
+                    "A prior order-create intent exists without a persisted provider reference. "
+                    "An explicit retry will use GET-only recovery."
+                ),
+                "scope": _RAZORPAY_SCOPE,
+                "limitations": _RAZORPAY_LIMITATIONS,
+            }
+        return {
+            "state": "NOT_DEMONSTRATED",
+            "provider_status_refreshed": False,
+            "message": "No Razorpay order action has been requested.",
+            "scope": _RAZORPAY_SCOPE,
+            "limitations": _RAZORPAY_LIMITATIONS,
+        }
+
     def _authority_presentation(
         self,
         connection: sqlite3.Connection,
@@ -2705,11 +2867,21 @@ class ProductService:
         if plan is None:
             presentation["governor"] = {"state": "AUTHORIZING"}
             return presentation
-        self._validate_financial_reservation(context, record, decision_time)
+        ledger_state = self._validate_financial_reservation(
+            context,
+            record,
+            decision_time,
+            plan,
+        )
+        execution_plan = self._execution_plan_presentation(plan, merchant_names)
+        razorpay_order = self._razorpay_order_presentation(plan, ledger_state)
+        if razorpay_order["state"] != "NOT_DEMONSTRATED":
+            execution_plan["provider_action"] = razorpay_order["state"]
         presentation["governor"] = {
             "state": "AUTHORIZED",
-            "execution_plan": self._execution_plan_presentation(plan, merchant_names),
+            "execution_plan": execution_plan,
         }
+        presentation["razorpay_order"] = razorpay_order
         return presentation
 
     def get_market_authority(self, market_id: str) -> dict[str, object]:
@@ -2801,6 +2973,214 @@ class ProductService:
             "altered_copy_money_action": "NO MONEY ACTION FOR THE ALTERED COPY.",
             "truth_class": "DETERMINISTIC FIXTURE",
         }
+
+    @staticmethod
+    def _razorpay_credentials(
+        environment: Mapping[str, str],
+    ) -> RazorpayTestCredentialsV1 | None:
+        key_id = environment.get("RAZORPAY_TEST_KEY_ID")
+        key_secret = environment.get("RAZORPAY_TEST_KEY_SECRET")
+        if key_id is None or key_secret is None:
+            return None
+        try:
+            return RazorpayTestCredentialsV1(key_id=key_id, key_secret=key_secret)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _razorpay_failure_presentation(
+        *,
+        market_id: str,
+        code: str,
+        message: str,
+        provider_contacted: bool | None,
+        unavailable: bool = False,
+    ) -> dict[str, object]:
+        return {
+            "result": "UNAVAILABLE" if unavailable else "FAILED",
+            "market_id": market_id,
+            "mode": "RAZORPAY TEST MODE",
+            "observation": "NOT DEMONSTRATED",
+            "provider_contacted": provider_contacted,
+            "code": code,
+            "message": message,
+            "scope": _RAZORPAY_SCOPE,
+            "limitations": _RAZORPAY_LIMITATIONS,
+        }
+
+    @staticmethod
+    def _razorpay_success_presentation(
+        *,
+        market_id: str,
+        plan: ExecutionPlanV1,
+        resolution: str,
+        order: RazorpayOrderV1,
+    ) -> dict[str, object]:
+        if (
+            type(order) is not RazorpayOrderV1
+            or resolution not in {"CREATED", "EXISTING", "RECOVERED"}
+            or order.execution_id != plan.execution_id
+            or order.amount != plan.order_amount
+            or order.currency != "INR"
+            or order.receipt != plan.execution_id
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        try:
+            validated_order = RazorpayOrderV1.model_validate(
+                {name: order.__dict__[name] for name in RazorpayOrderV1.model_fields}
+            )
+        except (AttributeError, KeyError, TypeError, ValueError, ValidationError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        if validated_order != order:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        return {
+            "result": "SUCCESS",
+            "market_id": market_id,
+            "mode": "RAZORPAY TEST MODE",
+            "observation": "CURRENT-RUN PROVIDER OBSERVATION",
+            "resolution": resolution,
+            "provider_order_id": order.provider_order_id,
+            "execution_id": plan.execution_id,
+            "order_amount_paise": plan.order_amount.amount_paise,
+            "currency": "INR",
+            "receipt": plan.execution_id,
+            "provider_contacted": True,
+            "scope": _RAZORPAY_SCOPE,
+            "limitations": _RAZORPAY_LIMITATIONS,
+        }
+
+    def create_market_razorpay_order(
+        self,
+        market_id: str,
+        *,
+        environment: Mapping[str, str] | None = None,
+        transport: RazorpayOrderTransportV1 | None = None,
+    ) -> dict[str, object]:
+        """Run one explicit current-market action through the production order boundary."""
+        market_id = _parse_uuid(market_id)
+        with self.store.connection() as connection:
+            context = self._load_closed_authority_context(connection, market_id)
+            if context.certificate.allocation.status is not AllocationClaimStatusV2.FEASIBLE:
+                raise ProductServiceError(ProductErrorCode.ALLOCATION_NOT_EXECUTABLE)
+            record = self.store.get_execution_authority(connection, market_id)
+            if record is None:
+                raise ProductServiceError(ProductErrorCode.EXECUTION_NOT_AUTHORIZED)
+            request, decision_time, plan = self._validated_execution_record(context, record)
+            if plan is None:
+                raise ProductServiceError(ProductErrorCode.EXECUTION_NOT_AUTHORIZED)
+            self._validate_financial_reservation(
+                context,
+                record,
+                decision_time,
+                plan,
+            )
+
+        credentials = self._razorpay_credentials(os.environ if environment is None else environment)
+        if credentials is None:
+            return self._razorpay_failure_presentation(
+                market_id=market_id,
+                code="RAZORPAY_TEST_MODE_UNAVAILABLE",
+                message="Valid server-side Razorpay Test Mode credentials are required.",
+                provider_contacted=False,
+                unavailable=True,
+            )
+
+        try:
+            with SQLiteFinancialLedgerV1(str(self._financial_ledger_path)) as ledger:
+                try:
+                    created = create_razorpay_test_order_v1(
+                        certificate=context.certificate,
+                        trusted_signing_identities=context.trusted_identities,
+                        execution_request=request,
+                        decision_time=decision_time,
+                        ledger=ledger,
+                        credentials=credentials,
+                        transport=transport,
+                    )
+                except RazorpayOrderError as error:
+                    if error.code is not RazorpayOrderFailureCode.ORDER_CREATION_RECOVERY_REQUIRED:
+                        return self._razorpay_failure_presentation(
+                            market_id=market_id,
+                            code=error.code.value,
+                            message="The Razorpay Test Mode order boundary failed closed.",
+                            provider_contacted=None,
+                        )
+                    recovered = recover_razorpay_test_order_v1(
+                        certificate=context.certificate,
+                        trusted_signing_identities=context.trusted_identities,
+                        execution_request=request,
+                        decision_time=decision_time,
+                        ledger=ledger,
+                        credentials=credentials,
+                    )
+                    if type(recovered) is not RazorpayOrderRecoveryResultV1:
+                        raise ProductServiceError(
+                            ProductErrorCode.PERSISTED_DATA_INVALID
+                        ) from error
+                    if (
+                        recovered.execution_id != plan.execution_id
+                        or recovered.order_create_fingerprint_sha256
+                        != razorpay_order_create_fingerprint_v1(plan)
+                    ):
+                        raise ProductServiceError(
+                            ProductErrorCode.PERSISTED_DATA_INVALID
+                        ) from error
+                    if recovered.disposition is RazorpayOrderRecoveryDispositionV1.NOT_FOUND:
+                        if recovered.order is not None:
+                            raise ProductServiceError(
+                                ProductErrorCode.PERSISTED_DATA_INVALID
+                            ) from error
+                        return self._razorpay_failure_presentation(
+                            market_id=market_id,
+                            code="ORDER_RECOVERY_NOT_FOUND",
+                            message=(
+                                "GET-only recovery did not identify a provider order. "
+                                "No additional provider mutation was attempted."
+                            ),
+                            provider_contacted=None,
+                        )
+                    if recovered.order is None:
+                        raise ProductServiceError(
+                            ProductErrorCode.PERSISTED_DATA_INVALID
+                        ) from error
+                    return self._razorpay_success_presentation(
+                        market_id=market_id,
+                        plan=plan,
+                        resolution=recovered.disposition.value,
+                        order=recovered.order,
+                    )
+        except RazorpayOrderRecoveryError as error:
+            return self._razorpay_failure_presentation(
+                market_id=market_id,
+                code=error.code.value,
+                message="GET-only Razorpay Test Mode recovery failed closed.",
+                provider_contacted=None,
+            )
+        except (MoneyGovernorError, PersistenceError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        except ProductServiceError:
+            raise
+        except (TypeError, ValueError, ValidationError):
+            return self._razorpay_failure_presentation(
+                market_id=market_id,
+                code="RAZORPAY_ORDER_BOUNDARY_FAILED",
+                message="The Razorpay Test Mode order boundary failed closed.",
+                provider_contacted=None,
+            )
+
+        if type(created) is not RazorpayOrderResultV1:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        if created.resolution not in {
+            RazorpayOrderResolutionV1.CREATED,
+            RazorpayOrderResolutionV1.EXISTING,
+        }:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        return self._razorpay_success_presentation(
+            market_id=market_id,
+            plan=plan,
+            resolution=created.resolution.value,
+            order=created.order,
+        )
 
     def authorize_market_execution(self, market_id: str) -> dict[str, object]:
         market_id = _parse_uuid(market_id)

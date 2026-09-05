@@ -380,6 +380,25 @@
                       </dl>
                       <p class="micro-label runtime-lines-label">PROVIDER-NEUTRAL TRANSFER OBLIGATIONS</p>
                       <div class="runtime-authority-lines" id="runtime-transfer-lines"></div>
+                      <section class="runtime-razorpay-action" aria-labelledby="runtime-razorpay-title">
+                        <div class="runtime-execution-head">
+                          <div><p class="micro-label">EXPLICIT PROVIDER ACTION</p><h3 id="runtime-razorpay-title">Razorpay Test Mode order</h3></div>
+                          <strong data-razorpay-field="state">NOT DEMONSTRATED</strong>
+                        </div>
+                        <p class="runtime-boundary-copy">Razorpay Test Mode order creation and existing-order resolution only. This does not demonstrate payment capture, customer payment, webhook handling, transfer, settlement, or real-money movement.</p>
+                        <button class="button button-secondary" id="create-runtime-razorpay-order" type="button"><span>Create Razorpay Test Mode order</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                        <p class="action-note" id="runtime-razorpay-status" role="status" aria-live="polite">No Razorpay order action has been requested.</p>
+                        <div class="runtime-razorpay-result" id="runtime-razorpay-result" hidden>
+                          <p class="micro-label" data-razorpay-field="observation">—</p>
+                          <dl class="runtime-authority-facts">
+                            <div><dt>RESOLUTION</dt><dd data-razorpay-field="resolution">—</dd></div>
+                            <div><dt>PROVIDER ORDER ID</dt><dd data-razorpay-field="provider-order-id">—</dd></div>
+                            <div><dt>EXECUTION ID</dt><dd data-razorpay-field="execution-id">—</dd></div>
+                            <div><dt>ORDER AMOUNT</dt><dd><span data-razorpay-field="order-amount">—</span> PAISE · INR</dd></div>
+                            <div><dt>RECEIPT</dt><dd data-razorpay-field="receipt">—</dd></div>
+                          </dl>
+                        </div>
+                      </section>
                     </div>
                   </section>
                 </div>

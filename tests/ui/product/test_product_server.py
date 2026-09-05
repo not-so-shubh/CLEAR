@@ -547,3 +547,68 @@ def test_authority_http_routes_are_strict_and_fail_closed(
                     "message": "Product request failed closed.",
                 }
             }
+
+
+def test_current_market_razorpay_order_route_accepts_only_exact_empty_object(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLEAR_PRODUCT_DB_PATH", str(tmp_path / "product.sqlite3"))
+    market_id = "ce100000-0000-4000-8000-000000000001"
+    calls: list[str] = []
+
+    def current_order(_service: object, selected_market_id: str) -> dict[str, object]:
+        calls.append(selected_market_id)
+        return {
+            "result": "SUCCESS",
+            "market_id": selected_market_id,
+            "mode": "RAZORPAY TEST MODE",
+            "observation": "CURRENT-RUN PROVIDER OBSERVATION",
+            "resolution": "CREATED",
+            "provider_order_id": "order_CLEARServerBoundary1",
+            "execution_id": "ce200000-0000-4000-8000-000000000001",
+            "order_amount_paise": 1_100,
+            "currency": "INR",
+            "receipt": "ce200000-0000-4000-8000-000000000001",
+            "provider_contacted": True,
+            "scope": "Razorpay Test Mode order creation and existing-order resolution only.",
+            "limitations": "Order boundary only.",
+        }
+
+    monkeypatch.setattr(
+        server_module.ProductService,
+        "create_market_razorpay_order",
+        current_order,
+    )
+    path = f"/api/product-v1/markets/{market_id}/authority/razorpay-order"
+    status, payload = _post(path, {})
+
+    assert status == 200
+    assert payload["resolution"] == "CREATED"
+    assert calls == [market_id]
+    for invalid_body in (
+        b"",
+        b"[]",
+        b"null",
+        b'""',
+        b'{"amount":1100}',
+        b'{"currency":"INR"}',
+        b'{"execution_id":"client"}',
+        b'{"receipt":"client"}',
+        b'{"winner":"client"}',
+        b'{"merchant":"client"}',
+        b'{"transfer_amount":1}',
+        b'{"provider_order_id":"order_client"}',
+        b'{"idempotency_key":"client"}',
+        b'{"certificate":{}}',
+        b'{"authority_request":{}}',
+    ):
+        invalid_status, invalid = _request("POST", path, invalid_body)
+        assert invalid_status == 400
+        assert invalid == {
+            "error": {
+                "code": "INVALID_REQUEST",
+                "message": "Product request failed closed.",
+            }
+        }
+    assert calls == [market_id]

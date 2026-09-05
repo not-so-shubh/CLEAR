@@ -51,6 +51,9 @@
   const runtimeAuthorizeButton = document.querySelector("#authorize-runtime-execution");
   const runtimeAuthorityStatus = document.querySelector("#runtime-authority-status");
   const runtimeExecutionPlan = document.querySelector("#runtime-execution-plan");
+  const runtimeRazorpayButton = document.querySelector("#create-runtime-razorpay-order");
+  const runtimeRazorpayStatus = document.querySelector("#runtime-razorpay-status");
+  const runtimeRazorpayResult = document.querySelector("#runtime-razorpay-result");
 
   let currentMarketId = null;
   let running = false;
@@ -67,6 +70,10 @@
   let authoritySnapshotRequest = 0;
   let tamperRequestGeneration = 0;
   let authorizeRequestGeneration = 0;
+  let razorpayRequestGeneration = 0;
+  let razorpayRunning = false;
+  let currentRuntimeExecutionId = null;
+  let currentRuntimeOrderAmount = null;
   let reconcileActiveWorkspace = () => {};
 
   const setText = (selector, value) => {
@@ -940,6 +947,11 @@
     if (target) target.textContent = String(value);
   };
 
+  const setRuntimeRazorpayText = (field, value) => {
+    const target = document.querySelector(`[data-razorpay-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
   const resetRuntimeTamper = () => {
     ++tamperRequestGeneration;
     if (runtimeTamperResult) runtimeTamperResult.hidden = true;
@@ -957,6 +969,45 @@
     if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
       runtimeAuthorizeButton.disabled = value;
     }
+    if (runtimeRazorpayButton instanceof HTMLButtonElement) {
+      runtimeRazorpayButton.disabled = value || razorpayRunning;
+    }
+  };
+
+  const setRazorpayRunning = (value) => {
+    razorpayRunning = value;
+    if (runtimeRazorpayButton instanceof HTMLButtonElement) {
+      runtimeRazorpayButton.disabled = value || authorityRunning;
+    }
+    if (runtimeTamperButton instanceof HTMLButtonElement) {
+      runtimeTamperButton.disabled = value || authorityRunning;
+    }
+    if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+      runtimeAuthorizeButton.disabled = value || authorityRunning;
+    }
+  };
+
+  const resetRuntimeRazorpay = () => {
+    ++razorpayRequestGeneration;
+    currentRuntimeExecutionId = null;
+    currentRuntimeOrderAmount = null;
+    if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = true;
+    if (runtimeRazorpayButton instanceof HTMLButtonElement) {
+      runtimeRazorpayButton.hidden = false;
+      const label = runtimeRazorpayButton.querySelector("span");
+      if (label) label.textContent = "Create Razorpay Test Mode order";
+    }
+    setRuntimeRazorpayText("state", "NOT DEMONSTRATED");
+    setRuntimeRazorpayText("observation", "—");
+    setRuntimeRazorpayText("resolution", "—");
+    setRuntimeRazorpayText("provider-order-id", "—");
+    setRuntimeRazorpayText("execution-id", "—");
+    setRuntimeRazorpayText("order-amount", "—");
+    setRuntimeRazorpayText("receipt", "—");
+    if (runtimeRazorpayStatus) {
+      runtimeRazorpayStatus.textContent = "No Razorpay order action has been requested.";
+    }
+    setRazorpayRunning(false);
   };
 
   const clearRuntimeAuthorityPresentation = () => {
@@ -967,6 +1018,7 @@
     runtimeCertificateLines?.replaceChildren();
     runtimeTransferLines?.replaceChildren();
     resetRuntimeTamper();
+    resetRuntimeRazorpay();
     if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
       runtimeAuthorizeButton.hidden = false;
       const label = runtimeAuthorizeButton.querySelector("span");
@@ -1047,6 +1099,62 @@
     });
   };
 
+  const renderRuntimeRazorpayState = (providerState) => {
+    if (
+      !providerState ||
+      typeof providerState !== "object" ||
+      providerState.provider_status_refreshed !== false
+    ) {
+      throw new Error("The persisted Razorpay order state failed closed.");
+    }
+    if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = true;
+    if (providerState.state === "NOT_DEMONSTRATED") {
+      setRuntimeRazorpayText("state", "NOT DEMONSTRATED");
+      if (runtimeRazorpayStatus) {
+        runtimeRazorpayStatus.textContent = "No Razorpay order action has been requested.";
+      }
+      return;
+    }
+    if (providerState.state === "RECOVERY_REQUIRED") {
+      setRuntimeRazorpayText("state", "RECOVERY REQUIRED");
+      if (runtimeRazorpayButton instanceof HTMLButtonElement) {
+        const label = runtimeRazorpayButton.querySelector("span");
+        if (label) label.textContent = "Reconcile Razorpay Test Mode order";
+      }
+      if (runtimeRazorpayStatus) {
+        runtimeRazorpayStatus.textContent =
+          "A persisted create intent requires an explicit GET-only reconciliation.";
+      }
+      return;
+    }
+    if (
+      providerState.state !== "ORDER_REFERENCE_PERSISTED" ||
+      typeof providerState.provider_order_id !== "string" ||
+      providerState.execution_id !== currentRuntimeExecutionId ||
+      providerState.order_amount_paise !== currentRuntimeOrderAmount ||
+      providerState.currency !== "INR" ||
+      providerState.receipt !== currentRuntimeExecutionId
+    ) {
+      throw new Error("The persisted Razorpay order reference failed closed.");
+    }
+    setRuntimeRazorpayText("state", "ORDER REFERENCE PERSISTED");
+    setRuntimeRazorpayText("observation", "SERVER LEDGER · NO PROVIDER REFRESH");
+    setRuntimeRazorpayText("resolution", "ORDER REFERENCE PERSISTED");
+    setRuntimeRazorpayText("provider-order-id", providerState.provider_order_id);
+    setRuntimeRazorpayText("execution-id", providerState.execution_id);
+    setRuntimeRazorpayText("order-amount", providerState.order_amount_paise);
+    setRuntimeRazorpayText("receipt", providerState.receipt);
+    if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = false;
+    if (runtimeRazorpayButton instanceof HTMLButtonElement) {
+      const label = runtimeRazorpayButton.querySelector("span");
+      if (label) label.textContent = "Resolve existing Razorpay order";
+    }
+    if (runtimeRazorpayStatus) {
+      runtimeRazorpayStatus.textContent =
+        "A provider order reference is persisted. This GET did not contact Razorpay.";
+    }
+  };
+
   const renderRuntimeAuthority = (payload) => {
     const certificate = payload?.certificate;
     const allocation = certificate?.allocation;
@@ -1083,9 +1191,22 @@
 
     if (governor.state === "AUTHORIZED") {
       const plan = governor.execution_plan;
-      if (!plan || typeof plan !== "object" || !Array.isArray(plan.transfer_obligations)) {
+      if (
+        !plan ||
+        typeof plan !== "object" ||
+        !Array.isArray(plan.transfer_obligations) ||
+        typeof plan.execution_id !== "string" ||
+        !Number.isSafeInteger(plan.order_amount_paise) ||
+        plan.order_amount_paise < 0 ||
+        plan.provider_action !==
+          (payload?.razorpay_order?.state === "NOT_DEMONSTRATED"
+            ? "NOT DEMONSTRATED"
+            : payload?.razorpay_order?.state)
+      ) {
         throw new Error("The persisted execution plan failed closed.");
       }
+      currentRuntimeExecutionId = plan.execution_id;
+      currentRuntimeOrderAmount = plan.order_amount_paise;
       setRuntimeAuthorityText("execution-state", "GOVERNOR AUTHORIZED");
       setRuntimeExecutionText("plan-version", plan.execution_plan_version);
       setRuntimeExecutionText("execution-id", plan.execution_id);
@@ -1101,9 +1222,10 @@
       if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
         runtimeAuthorizeButton.hidden = true;
       }
+      renderRuntimeRazorpayState(payload.razorpay_order);
       if (runtimeAuthorityStatus) {
         runtimeAuthorityStatus.textContent =
-          "Provider-neutral execution authority restored. No Razorpay action has occurred.";
+          "Provider-neutral execution authority restored from persisted server state.";
       }
       return;
     }
@@ -1586,6 +1708,110 @@
           currentClearingMarketId === marketId
         ) {
           setAuthorityRunning(false);
+        }
+      }
+    });
+  }
+
+  if (runtimeRazorpayButton instanceof HTMLButtonElement) {
+    runtimeRazorpayButton.addEventListener("click", async () => {
+      if (
+        authorityRunning ||
+        razorpayRunning ||
+        currentClearingState !== "CLOSED" ||
+        !currentClearingMarketId ||
+        !currentRuntimeExecutionId ||
+        !Number.isSafeInteger(currentRuntimeOrderAmount)
+      ) {
+        return;
+      }
+      const marketId = currentClearingMarketId;
+      const executionId = currentRuntimeExecutionId;
+      const orderAmount = currentRuntimeOrderAmount;
+      const requestGeneration = ++razorpayRequestGeneration;
+      setRazorpayRunning(true);
+      if (runtimeRazorpayStatus) {
+        runtimeRazorpayStatus.textContent =
+          "Requesting one explicit Governor-gated Razorpay Test Mode order action.";
+      }
+      try {
+        const response = await requestJSON(
+          `/api/product-v1/markets/${encodeURIComponent(marketId)}/authority/razorpay-order`,
+          { method: "POST", body: "{}" },
+        );
+        if (
+          requestGeneration !== razorpayRequestGeneration ||
+          currentClearingMarketId !== marketId ||
+          currentRuntimeExecutionId !== executionId
+        ) {
+          return;
+        }
+        const payload = response.payload;
+        if (!response.ok) {
+          const code = payload?.error?.code || payload?.code || "RAZORPAY_ORDER_FAILED";
+          if (runtimeRazorpayStatus) runtimeRazorpayStatus.textContent = String(code);
+          return;
+        }
+        if (
+          payload?.result !== "SUCCESS" ||
+          payload.market_id !== marketId ||
+          payload.mode !== "RAZORPAY TEST MODE" ||
+          payload.observation !== "CURRENT-RUN PROVIDER OBSERVATION" ||
+          !["CREATED", "EXISTING", "RECOVERED"].includes(payload.resolution) ||
+          typeof payload.provider_order_id !== "string" ||
+          payload.execution_id !== executionId ||
+          payload.order_amount_paise !== orderAmount ||
+          payload.currency !== "INR" ||
+          payload.receipt !== executionId ||
+          payload.provider_contacted !== true
+        ) {
+          throw new Error("The current-run provider observation failed closed.");
+        }
+        const state = {
+          CREATED: "ORDER CREATED",
+          EXISTING: "EXISTING ORDER RESOLVED",
+          RECOVERED: "ORDER RECOVERED",
+        }[payload.resolution];
+        setRuntimeRazorpayText("state", state);
+        setRuntimeRazorpayText(
+          "observation",
+          payload.resolution === "EXISTING"
+            ? "CURRENT-RUN PROVIDER OBSERVATION · PROVIDER-BACKED RETRIEVAL"
+            : "CURRENT-RUN PROVIDER OBSERVATION",
+        );
+        setRuntimeRazorpayText("resolution", payload.resolution);
+        setRuntimeRazorpayText("provider-order-id", payload.provider_order_id);
+        setRuntimeRazorpayText("execution-id", payload.execution_id);
+        setRuntimeRazorpayText("order-amount", payload.order_amount_paise);
+        setRuntimeRazorpayText("receipt", payload.receipt);
+        if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = false;
+        const label = runtimeRazorpayButton.querySelector("span");
+        if (label) label.textContent = "Resolve existing Razorpay order";
+        if (runtimeRazorpayStatus) {
+          runtimeRazorpayStatus.textContent =
+            "Provider order facts were validated against the persisted ExecutionPlanV1.";
+        }
+      } catch (error) {
+        if (
+          requestGeneration !== razorpayRequestGeneration ||
+          currentClearingMarketId !== marketId ||
+          currentRuntimeExecutionId !== executionId
+        ) {
+          return;
+        }
+        if (runtimeRazorpayStatus) {
+          runtimeRazorpayStatus.textContent =
+            error instanceof Error
+              ? error.message
+              : "The Razorpay Test Mode order action failed closed.";
+        }
+      } finally {
+        if (
+          requestGeneration === razorpayRequestGeneration &&
+          currentClearingMarketId === marketId &&
+          currentRuntimeExecutionId === executionId
+        ) {
+          setRazorpayRunning(false);
         }
       }
     });

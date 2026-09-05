@@ -44,6 +44,9 @@ _PRODUCT_AUTHORITY_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/authority
 _PRODUCT_AUTHORITY_AUTHORIZE_PATH = re.compile(
     r"/api/product-v1/markets/([^/]+)/authority/authorize"
 )
+_PRODUCT_AUTHORITY_RAZORPAY_ORDER_PATH = re.compile(
+    r"/api/product-v1/markets/([^/]+)/authority/razorpay-order"
+)
 _PRODUCT_AUTHORITY_TAMPER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/authority/tamper")
 _PRODUCT_OFFER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/offers")
 _PRODUCT_CLOSE_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/close")
@@ -74,6 +77,7 @@ _PRODUCT_ERROR_STATUSES = {
     ProductErrorCode.PROPOSAL_NOT_SUBMITTABLE: HTTPStatus.CONFLICT,
     ProductErrorCode.MARKET_NOT_CLOSED: HTTPStatus.CONFLICT,
     ProductErrorCode.ALLOCATION_NOT_EXECUTABLE: HTTPStatus.CONFLICT,
+    ProductErrorCode.EXECUTION_NOT_AUTHORIZED: HTTPStatus.CONFLICT,
 }
 
 
@@ -321,6 +325,12 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(
                     service.authorize_market_execution(authority_authorize_match.group(1))
                 )
+                return
+            razorpay_order_match = _PRODUCT_AUTHORITY_RAZORPAY_ORDER_PATH.fullmatch(requested)
+            if razorpay_order_match is not None:
+                parse_product_json(body, CloseMarketRequest)
+                payload = service.create_market_razorpay_order(razorpay_order_match.group(1))
+                self._send_json(payload, _live_result_status(payload))
                 return
             authority_tamper_match = _PRODUCT_AUTHORITY_TAMPER_PATH.fullmatch(requested)
             if authority_tamper_match is not None:
