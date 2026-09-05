@@ -7,11 +7,17 @@ import mimetypes
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from urllib.parse import urlparse
 
 from .presentation import PresentationError, build_authority_demo_presentation
+from .razorpay_evidence import (
+    build_razorpay_test_order_evidence,
+    unavailable_presentation,
+)
 
 UI_ROOT = Path(__file__).resolve().parent
+_LIVE_EVIDENCE_LOCK = Lock()
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -27,7 +33,11 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def do_POST(self) -> None:
-        if urlparse(self.path).path != "/api/authority-demo":
+        requested = urlparse(self.path).path
+        if requested not in {
+            "/api/authority-demo",
+            "/api/razorpay-test-order-evidence",
+        }:
             self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             return
         length = int(self.headers.get("Content-Length", "0"))
@@ -36,6 +46,36 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if length:
             self.rfile.read(length)
+        if requested == "/api/razorpay-test-order-evidence":
+            if not _LIVE_EVIDENCE_LOCK.acquire(blocking=False):
+                self._send_json(
+                    unavailable_presentation(
+                        "LIVE_EVIDENCE_BUSY",
+                        "A Razorpay Test Mode evidence request is already running.",
+                    ),
+                    HTTPStatus.CONFLICT,
+                )
+                return
+            try:
+                try:
+                    payload = build_razorpay_test_order_evidence()
+                except Exception:
+                    payload = unavailable_presentation(
+                        "LIVE_EVIDENCE_INTERNAL_FAILURE",
+                        "The current-run Test Mode evidence path failed closed.",
+                    )
+                    status = HTTPStatus.INTERNAL_SERVER_ERROR
+                else:
+                    if payload["result"] == "SUCCESS":
+                        status = HTTPStatus.OK
+                    elif payload["result"] == "UNAVAILABLE":
+                        status = HTTPStatus.SERVICE_UNAVAILABLE
+                    else:
+                        status = HTTPStatus.BAD_GATEWAY
+                self._send_json(payload, status)
+            finally:
+                _LIVE_EVIDENCE_LOCK.release()
+            return
         try:
             payload = build_authority_demo_presentation()
         except (PresentationError, RuntimeError, ValueError, TypeError) as error:

@@ -291,6 +291,127 @@
     }
   }
 
+  const LiveState = Object.freeze({
+    IDLE: "IDLE",
+    RUNNING: "RUNNING",
+    SUCCESS: "SUCCESS",
+    FAILED: "FAILED",
+    UNAVAILABLE: "UNAVAILABLE",
+  });
+  const liveFailureHeadings = Object.freeze({
+    LIVE_TEST_MODE_UNAVAILABLE: "TEST MODE UNAVAILABLE",
+    LIVE_EVIDENCE_BUSY: "CHECK ALREADY RUNNING",
+    PROVIDER_AUTHENTICATION_FAILURE: "PROVIDER AUTHENTICATION FAILED",
+    PROVIDER_TIMEOUT_OR_NETWORK_FAILURE: "PROVIDER REQUEST DID NOT COMPLETE",
+    INVALID_PROVIDER_RESPONSE: "INVALID PROVIDER RESPONSE",
+    AUTHORITY_VERIFICATION_FAILURE: "AUTHORITY NOT VERIFIED",
+    MONEY_GOVERNOR_REFUSAL: "MONEY GOVERNOR REFUSED",
+    PROVIDER_ORDER_MISMATCH: "PROVIDER ORDER MISMATCH",
+    PROVIDER_REQUEST_FAILURE: "PROVIDER REQUEST FAILED",
+    LIVE_EVIDENCE_INTERNAL_FAILURE: "CHECK FAILED CLOSED",
+  });
+  const liveActionLabels = Object.freeze({
+    IDLE: "NOT RUN · USER INITIATED",
+    RUNNING: "RUNNING · USER INITIATED",
+    SUCCESS: "CURRENT RUN · VALIDATED",
+    FAILED: "CURRENT RUN · NOT VALIDATED",
+    UNAVAILABLE: "CURRENT RUN · NOT VALIDATED",
+  });
+  let liveState = LiveState.IDLE;
+
+  function clearLiveEvidence() {
+    const result = $("#live-evidence-result");
+    result.hidden = true;
+    result.removeAttribute("data-result");
+    $$('[data-live-success]').forEach((element) => { element.hidden = true; });
+    setText('[data-live-field="result-heading"]', "CURRENT-RUN RESULT");
+    setText('[data-live-field="result-message"]', "");
+    setText('[data-live-field="error-code"]', "");
+    $('[data-live-field="error-code"]').hidden = true;
+    ["authority", "governor", "execution-plan", "first-resolution", "second-resolution", "retrieval", "provider-order-id", "same-order"].forEach((field) => setText(`[data-live-field="${field}"]`, "—"));
+  }
+
+  function assertLivePresentation(payload) {
+    if (!payload || payload.presentation_version !== "clear-razorpay-test-order-evidence-v1" || payload.mode !== "RAZORPAY TEST MODE" || payload.current_run !== true) throw new Error("Invalid live evidence response");
+    if (![LiveState.SUCCESS, LiveState.FAILED, LiveState.UNAVAILABLE].includes(payload.result)) throw new Error("Invalid live evidence state");
+    if (payload.result !== LiveState.SUCCESS) {
+      if (!(payload.code in liveFailureHeadings) || typeof payload.message !== "string" || !payload.message) throw new Error("Invalid live failure response");
+      if (typeof payload.authority_verified !== "boolean" || typeof payload.execution_reserved !== "boolean" || typeof payload.provider_contacted !== "boolean") throw new Error("Invalid live failure facts");
+      return payload;
+    }
+    const first = payload.first_invocation;
+    const second = payload.second_identical_invocation;
+    const orderPattern = /^order_[A-Za-z0-9]{1,128}$/;
+    if (payload.authority_verified !== true || payload.governor_state !== "EXECUTION RESERVED" || payload.execution_reserved !== true || payload.execution_plan !== "ExecutionPlanV1" || payload.provider_contacted !== true) throw new Error("Invalid live authority facts");
+    if (!first || first.resolution !== "CREATED" || !orderPattern.test(first.provider_order_id)) throw new Error("Invalid first invocation facts");
+    if (!second || second.resolution !== "EXISTING" || second.retrieval !== "PROVIDER-BACKED" || second.provider_order_id !== first.provider_order_id) throw new Error("Invalid second invocation facts");
+    if (payload.same_provider_order !== true || payload.provider_observation !== "CURRENT-RUN PROVIDER OBSERVATION") throw new Error("Invalid provider identity proof");
+    return payload;
+  }
+
+  function renderLiveResult(data) {
+    const result = $("#live-evidence-result");
+    result.hidden = false;
+    result.dataset.result = data.result;
+    if (data.result === LiveState.SUCCESS) {
+      $$('[data-live-success]').forEach((element) => { element.hidden = false; });
+      setText('[data-live-field="result-heading"]', "ORDER PATH VALIDATED");
+      setText('[data-live-field="result-message"]', "Validated provider facts from this explicit Test Mode request.");
+      setText('[data-live-field="authority"]', "VERIFIED");
+      setText('[data-live-field="governor"]', data.governor_state);
+      setText('[data-live-field="execution-plan"]', `${data.execution_plan} / PRODUCED`);
+      setText('[data-live-field="first-resolution"]', data.first_invocation.resolution);
+      setText('[data-live-field="second-resolution"]', data.second_identical_invocation.resolution);
+      setText('[data-live-field="retrieval"]', `${data.second_identical_invocation.retrieval} RETRIEVAL`);
+      setText('[data-live-field="provider-order-id"]', data.first_invocation.provider_order_id);
+      setText('[data-live-field="same-order"]', "SAME ORDER IDENTITY CONFIRMED");
+      return;
+    }
+    setText('[data-live-field="result-heading"]', liveFailureHeadings[data.code]);
+    setText('[data-live-field="error-code"]', data.code);
+    $('[data-live-field="error-code"]').hidden = false;
+    setText('[data-live-field="result-message"]', data.message);
+  }
+
+  function renderLiveState() {
+    const button = $("#run-live-evidence");
+    button.disabled = liveState === LiveState.RUNNING;
+    button.setAttribute("aria-busy", String(liveState === LiveState.RUNNING));
+    setText(".live-not-run", liveActionLabels[liveState]);
+    setText("[data-live-run-label]", liveState === LiveState.RUNNING ? "Checking Razorpay Test Mode order path…" : liveState === LiveState.IDLE ? "Run Razorpay Test Mode order check" : "Run a new Test Mode order check");
+    if (liveState === LiveState.IDLE) setText("#live-evidence-status", "No current-run provider claim. Requires server-side Test Mode credentials.");
+    if (liveState === LiveState.RUNNING) setText("#live-evidence-status", "Running the verified authority and Test Mode order path. No payment is being processed.");
+    if (liveState === LiveState.SUCCESS) setText("#live-evidence-status", "Current-run Test Mode order facts validated. This is not payment or real-money evidence.");
+    if (liveState === LiveState.FAILED) setText("#live-evidence-status", "The current check failed closed. No successful live claim is retained.");
+    if (liveState === LiveState.UNAVAILABLE) setText("#live-evidence-status", "The optional current-run Test Mode check is unavailable. The deterministic demo is unaffected.");
+  }
+
+  async function runLiveEvidence() {
+    if (liveState === LiveState.RUNNING) return;
+    clearLiveEvidence();
+    liveState = LiveState.RUNNING;
+    renderLiveState();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch("/api/razorpay-test-order-evidence", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: controller.signal });
+      const data = assertLivePresentation(await response.json());
+      if (data.result === LiveState.SUCCESS && !response.ok) throw new Error("Invalid successful response status");
+      liveState = data.result;
+      renderLiveResult(data);
+    } catch (error) {
+      liveState = LiveState.UNAVAILABLE;
+      renderLiveResult({
+        result: LiveState.UNAVAILABLE,
+        code: "LIVE_EVIDENCE_INTERNAL_FAILURE",
+        message: "The current-run Test Mode check did not return a valid presentation response.",
+      });
+    } finally {
+      window.clearTimeout(timeout);
+      renderLiveState();
+    }
+  }
+
   $("#run-demo").addEventListener("click", runDemo);
   $$("[data-run-demo]").forEach((button) => button.addEventListener("click", () => {
     closeMenu();
@@ -300,6 +421,8 @@
   $("#reveal-tamper").addEventListener("click", () => {
     if (currentResult && state === State.VALID_RESULT) transition(State.TAMPER_REVEALED, currentResult);
   });
+  $("#run-live-evidence").addEventListener("click", runLiveEvidence);
   setupExperience();
   render();
+  renderLiveState();
 })();

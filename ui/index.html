@@ -114,6 +114,35 @@
           <article class="trace-step cumulative"><span class="trace-index">&#8721;</span><div><p class="micro-label">CUMULATIVE AFTER SECOND CALL</p><h3 data-field="provider-cumulative-state">AWAITING RUN</h3><p class="mono">POST <b data-field="provider-cumulative-post">—</b> / GET <b data-field="provider-cumulative-get">—</b></p></div></article>
         </div>
         <p class="provider-note">This controlled trace does not claim exactly-once network delivery.</p>
+        <section class="live-evidence" aria-labelledby="live-evidence-title">
+          <div class="live-evidence-intro">
+            <p class="micro-label">OPTIONAL CURRENT-RUN CHECK</p>
+            <h3 id="live-evidence-title">Razorpay Test Mode order evidence</h3>
+            <p class="support-copy">This is a separate, explicit server-side action. It does not run with the deterministic demo, the tamper reveal, page load, or scrolling.</p>
+            <div class="live-boundaries" aria-label="Provider evidence boundaries">
+              <div><span>CURRENT DETERMINISTIC DEMO</span><span class="evidence-label">FAKE/CONTROLLED EXTERNAL TRANSPORT</span></div>
+              <div><span>HISTORICAL RAZORPAY TEST MODE EVIDENCE</span><span class="evidence-label">HISTORICAL LIVE EVIDENCE ONLY</span></div>
+              <div><span>OPTIONAL CURRENT-RUN TEST MODE ACTION</span><span class="live-not-run">NOT RUN · USER INITIATED</span></div>
+            </div>
+            <button class="button button-secondary" id="run-live-evidence" type="button" aria-controls="live-evidence-result"><span data-live-run-label>Run Razorpay Test Mode order check</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+            <p class="action-note" id="live-evidence-status" role="status" aria-live="polite">No current-run provider claim. Requires server-side Test Mode credentials.</p>
+          </div>
+          <div class="live-evidence-result" id="live-evidence-result" aria-live="polite" hidden>
+            <p class="live-run-heading">CURRENT RUN · RAZORPAY TEST MODE</p>
+            <h3 data-live-field="result-heading">CURRENT-RUN RESULT</h3>
+            <p class="mono live-error-code" data-live-field="error-code" hidden></p>
+            <p class="support-copy" data-live-field="result-message"></p>
+            <div class="live-fact-grid" data-live-success hidden>
+              <div><span>AUTHORITY</span><strong data-live-field="authority">—</strong></div>
+              <div><span>MONEY GOVERNOR</span><strong data-live-field="governor">—</strong><small data-live-field="execution-plan">—</small></div>
+              <div><span>FIRST INVOCATION</span><strong data-live-field="first-resolution">—</strong></div>
+              <div><span>SECOND IDENTICAL INVOCATION</span><strong data-live-field="second-resolution">—</strong><small data-live-field="retrieval">—</small></div>
+              <div class="live-order-identity"><span>PROVIDER ORDER ID</span><strong class="mono" data-live-field="provider-order-id">—</strong><small data-live-field="same-order">—</small></div>
+            </div>
+            <p class="provider-note" data-live-success hidden>Current-run provider observation. This demonstrates Razorpay Test Mode order creation and existing-order resolution only.</p>
+            <p class="provider-note live-scope" data-live-success hidden>It does not demonstrate capture, customer payment, webhook delivery, transfer, settlement, refund, fulfillment, or real-money movement.</p>
+          </div>
+        </section>
       </section>
 
       <section class="act tamper-act" aria-labelledby="tamper-title">
