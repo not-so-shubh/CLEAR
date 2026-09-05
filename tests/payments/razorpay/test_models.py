@@ -16,6 +16,7 @@ from clear_market.payments.razorpay import (
     RazorpayOrderResolutionV1,
     RazorpayOrderResultV1,
     RazorpayOrderStatusV1,
+    RazorpayOrderTransportV1,
     RazorpayOrderV1,
 )
 
@@ -72,6 +73,7 @@ def test_versions_enums_and_public_api_are_exact() -> None:
         "RazorpayOrderResultV1",
         "RazorpayOrderFailureCode",
         "RazorpayOrderError",
+        "RazorpayOrderTransportV1",
         "canonical_razorpay_order_create_intent_v1_bytes",
         "razorpay_order_create_fingerprint_v1",
         "create_razorpay_test_order_v1",
@@ -105,6 +107,7 @@ def test_versions_enums_and_public_api_are_exact() -> None:
         "razorpay_webhook_raw_body_digest_v1",
         "authenticate_and_record_razorpay_webhook_v1",
     )
+    assert RazorpayOrderTransportV1 is razorpay.RazorpayOrderTransportV1
 
 
 def test_provider_error_code_is_read_only_and_message_is_exact() -> None:

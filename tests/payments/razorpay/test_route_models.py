@@ -118,7 +118,7 @@ def test_versions_enum_and_public_api_extension_are_exact() -> None:
         "PAUSED",
         "REVOKED",
     )
-    assert razorpay.__all__[15:30] == (
+    assert razorpay.__all__[16:31] == (
         "RAZORPAY_LINKED_ACCOUNT_BINDING_V1_VERSION",
         "RAZORPAY_ROUTE_MAPPING_REQUEST_V1_VERSION",
         "RAZORPAY_ROUTE_TRANSFER_LINE_V1_VERSION",

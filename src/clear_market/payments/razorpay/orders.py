@@ -8,7 +8,7 @@ import re
 import ssl
 from datetime import datetime
 from enum import StrEnum
-from typing import Final, Never, cast
+from typing import Final, Never, Protocol, cast
 
 from pydantic import ValidationError
 
@@ -50,6 +50,19 @@ _REFERENCE_KIND: Final[str] = "order"
 _PROVIDER_REFERENCE_PAGE_SIZE: Final[int] = 1_000
 _IDEMPOTENCY_NAMESPACE: Final[str] = "razorpay.order.create.v1"
 _ORDER_ID_PATTERN = re.compile(r"order_[A-Za-z0-9]{1,128}", flags=re.ASCII)
+
+
+class RazorpayOrderTransportV1(Protocol):
+    """Injectable provider I/O boundary for Razorpay Test Mode order calls."""
+
+    def __call__(
+        self,
+        *,
+        method: str,
+        path: str,
+        credentials: RazorpayTestCredentialsV1,
+        body: bytes | None,
+    ) -> tuple[int, bytes]: ...
 
 
 class RazorpayOrderFailureCode(StrEnum):
@@ -295,6 +308,29 @@ def _https_request(
             pass
 
 
+def _request_with_transport(
+    *,
+    transport: RazorpayOrderTransportV1 | None,
+    method: str,
+    path: str,
+    credentials: RazorpayTestCredentialsV1,
+    body: bytes | None,
+) -> tuple[int, bytes]:
+    if transport is None:
+        return _https_request(
+            method=method,
+            path=path,
+            credentials=credentials,
+            body=body,
+        )
+    return transport(
+        method=method,
+        path=path,
+        credentials=credentials,
+        body=body,
+    )
+
+
 def _request_body(plan: ExecutionPlanV1) -> bytes:
     body = json.dumps(
         {
@@ -318,11 +354,13 @@ def _existing_order(
     plan: ExecutionPlanV1,
     provider_order_id: str,
     credentials: RazorpayTestCredentialsV1,
+    transport: RazorpayOrderTransportV1 | None,
 ) -> RazorpayOrderResultV1:
     if _ORDER_ID_PATTERN.fullmatch(provider_order_id) is None:
         _fail(RazorpayOrderFailureCode.PROVIDER_ORDER_MISMATCH)
     try:
-        status, data = _https_request(
+        status, data = _request_with_transport(
+            transport=transport,
             method="GET",
             path=f"{_ORDERS_PATH}/{provider_order_id}",
             credentials=credentials,
@@ -381,6 +419,7 @@ def create_razorpay_test_order_v1(
     decision_time: datetime,
     ledger: SQLiteFinancialLedgerV1,
     credentials: RazorpayTestCredentialsV1,
+    transport: RazorpayOrderTransportV1 | None = None,
 ) -> RazorpayOrderResultV1:
     """Authorize first, then create at most one Razorpay Test Mode order attempt."""
     plan = authorize_execution_v1(
@@ -403,6 +442,7 @@ def create_razorpay_test_order_v1(
             plan=plan,
             provider_order_id=references[0].reference_id,
             credentials=credentials,
+            transport=transport,
         )
 
     fingerprint = razorpay_order_create_fingerprint_v1(plan)
@@ -423,7 +463,8 @@ def create_razorpay_test_order_v1(
         raise ValueError("unsupported idempotency disposition")
 
     try:
-        status, data = _https_request(
+        status, data = _request_with_transport(
+            transport=transport,
             method="POST",
             path=_ORDERS_PATH,
             credentials=credentials,

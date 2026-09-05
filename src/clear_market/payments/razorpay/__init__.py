@@ -13,6 +13,7 @@ from clear_market.payments.razorpay.models import (
 from clear_market.payments.razorpay.orders import (
     RazorpayOrderError,
     RazorpayOrderFailureCode,
+    RazorpayOrderTransportV1,
     canonical_razorpay_order_create_intent_v1_bytes,
     create_razorpay_test_order_v1,
     razorpay_order_create_fingerprint_v1,
@@ -72,6 +73,7 @@ __all__ = (  # noqa: RUF022
     "RazorpayOrderResultV1",
     "RazorpayOrderFailureCode",
     "RazorpayOrderError",
+    "RazorpayOrderTransportV1",
     "canonical_razorpay_order_create_intent_v1_bytes",
     "razorpay_order_create_fingerprint_v1",
     "create_razorpay_test_order_v1",

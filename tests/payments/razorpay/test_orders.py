@@ -26,6 +26,7 @@ from clear_market.payments.razorpay import (
     RazorpayOrderFailureCode,
     RazorpayOrderResolutionV1,
     RazorpayOrderStatusV1,
+    RazorpayOrderTransportV1,
     RazorpayTestCredentialsV1,
     canonical_razorpay_order_create_intent_v1_bytes,
     create_razorpay_test_order_v1,
@@ -132,6 +133,7 @@ def _call(
     trusted: Any | None = None,
     request: Any | None = None,
     decision_time: Any = _TIME,
+    transport: RazorpayOrderTransportV1 | None = None,
 ) -> Any:
     selected_certificate = certificate or _certificate()
     return create_razorpay_test_order_v1(
@@ -141,6 +143,7 @@ def _call(
         decision_time=decision_time,
         ledger=ledger,
         credentials=_credentials(),
+        transport=transport,
     )
 
 
@@ -275,8 +278,11 @@ def test_public_network_surface_requires_governor_inputs_and_has_no_naked_plan_a
         "decision_time",
         "ledger",
         "credentials",
+        "transport",
     )
     assert "plan" not in signature.parameters
+    assert signature.parameters["transport"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["transport"].default is None
     network_names = tuple(name for name in razorpay.__all__ if name.startswith("create_"))
     assert network_names == ("create_razorpay_test_order_v1",)
 
@@ -382,6 +388,155 @@ def test_successful_create_has_exact_request_result_and_durable_records(
         execution_id=result.order.execution_id,
         recorded_at=_TIME,
     )
+
+
+def test_injected_transport_controls_creation_and_existing_order_rerun(
+    tmp_path: Path,
+) -> None:
+    transport = _Boundary((200, _response()))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        created = _call(ledger, transport=transport)
+        existing = _call(ledger, transport=transport)
+
+    assert created.resolution is RazorpayOrderResolutionV1.CREATED
+    assert existing.resolution is RazorpayOrderResolutionV1.EXISTING
+    assert transport.post_count == 1
+    assert transport.get_count == 1
+    assert transport.calls[0]["method"] == "POST"
+    assert transport.calls[0]["path"] == "/v1/orders"
+    assert transport.calls[0]["body"] == (
+        b'{"amount":2700,"currency":"INR","partial_payment":false,'
+        b'"receipt":"e1000000-0000-4000-8000-000000000001"}'
+    )
+    assert transport.calls[1]["method"] == "GET"
+    assert transport.calls[1]["path"] == f"/v1/orders/{_ORDER_ID}"
+    assert transport.calls[1]["body"] is None
+
+
+def test_injected_transport_never_falls_back_to_private_https(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_called(**_kwargs: object) -> tuple[int, bytes]:
+        raise AssertionError("private HTTPS fallback was called")
+
+    monkeypatch.setattr(orders_module, "_https_request", fail_if_called)
+    transport = _Boundary((200, _response()))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        created = _call(ledger, transport=transport)
+        existing = _call(ledger, transport=transport)
+
+    assert created.resolution is RazorpayOrderResolutionV1.CREATED
+    assert existing.resolution is RazorpayOrderResolutionV1.EXISTING
+    assert transport.post_count == 1
+    assert transport.get_count == 1
+
+
+def test_injected_transport_is_not_reached_for_tampered_certificate(
+    tmp_path: Path,
+) -> None:
+    certificate = _validated_copy(
+        _certificate(),
+        allocation=_tampered_allocation("soft_score"),
+    )
+    request = _request_for(certificate)
+    transport = _Boundary((200, _response()))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        with pytest.raises(MoneyGovernorError) as caught:
+            _call(ledger, certificate=certificate, request=request, transport=transport)
+        assert caught.value.code is MoneyGovernorFailureCode.CERTIFICATE_NOT_VERIFIED
+        assert transport.calls == []
+        assert (
+            ledger.get_idempotency_record(
+                namespace=_IDEMPOTENCY_NAMESPACE,
+                idempotency_key=request.execution_id,
+            )
+            is None
+        )
+        assert ledger.get_execution_reservation(request.execution_id) is None
+
+
+def test_injected_transport_is_not_reached_for_expired_buyer_authorization(
+    tmp_path: Path,
+) -> None:
+    certificate = _certificate()
+    request = _request_for(
+        certificate,
+        buyer_valid_until=_TIME - timedelta(microseconds=1),
+    )
+    transport = _Boundary((200, _response()))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        with pytest.raises(MoneyGovernorError) as caught:
+            _call(ledger, request=request, transport=transport)
+        assert caught.value.code is MoneyGovernorFailureCode.BUYER_AUTHORIZATION_NOT_ACTIVE
+        assert transport.calls == []
+        assert ledger.get_execution_reservation(request.execution_id) is None
+
+
+def test_invalid_injected_creation_response_keeps_strict_failure_mapping(
+    tmp_path: Path,
+) -> None:
+    transport = _Boundary((200, _response(amount=2_701, amount_due=2_701)))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        _assert_order_error(
+            RazorpayOrderFailureCode.ORDER_CREATION_RECOVERY_REQUIRED,
+            lambda: _call(ledger, transport=transport),
+        )
+    assert transport.post_count == 1
+    assert transport.get_count == 0
+
+
+def test_injected_existing_order_response_mismatch_keeps_stable_failure(
+    tmp_path: Path,
+) -> None:
+    transport = _Boundary((200, _response(amount=2_701, amount_due=2_701)))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        _record_reference(ledger)
+        _assert_order_error(
+            RazorpayOrderFailureCode.PROVIDER_ORDER_MISMATCH,
+            lambda: _call(ledger, transport=transport),
+        )
+    assert transport.post_count == 0
+    assert transport.get_count == 1
+
+
+def test_injected_post_transport_timeout_maps_to_recovery_required(
+    tmp_path: Path,
+) -> None:
+    transport = _Boundary(TimeoutError("provider secret must stay private"))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        _assert_order_error(
+            RazorpayOrderFailureCode.ORDER_CREATION_RECOVERY_REQUIRED,
+            lambda: _call(ledger, transport=transport),
+        )
+    assert transport.post_count == 1
+    assert transport.get_count == 0
+
+
+def test_injected_get_transport_timeout_maps_to_fetch_failed(
+    tmp_path: Path,
+) -> None:
+    transport = _Boundary(TimeoutError("provider secret must stay private"))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        _record_reference(ledger)
+        _assert_order_error(
+            RazorpayOrderFailureCode.EXISTING_ORDER_FETCH_FAILED,
+            lambda: _call(ledger, transport=transport),
+        )
+    assert transport.post_count == 0
+    assert transport.get_count == 1
+
+
+def test_transport_none_preserves_default_private_https_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    boundary = _install_boundary(monkeypatch, (200, _response()))
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        result = _call(ledger, transport=None)
+    assert result.resolution is RazorpayOrderResolutionV1.CREATED
+    assert boundary.post_count == 1
+    assert boundary.get_count == 0
 
 
 def test_provider_response_may_omit_optional_binding_fields(
