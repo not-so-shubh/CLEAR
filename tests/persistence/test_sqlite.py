@@ -24,6 +24,7 @@ from clear_market.persistence import (
     SQLiteFinancialLedgerV1,
     open_sqlite_financial_ledger_v1,
 )
+from clear_market.persistence.sqlite import _IdempotencyPairConflict
 
 _TIME = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 _DIGEST_VERSION = "sha256-allocation-certificate-v2-clear-json-v1"
@@ -90,6 +91,13 @@ def _idempotency(index: int = 1, **changes: object) -> IdempotencyRecordV1:
         **changes,
     }
     return IdempotencyRecordV1(**values)
+
+
+def _idempotency_pair() -> tuple[IdempotencyRecordV1, IdempotencyRecordV1]:
+    return (
+        _idempotency(10, namespace="pair.first", idempotency_key="first"),
+        _idempotency(11, namespace="pair.second", idempotency_key="second"),
+    )
 
 
 def _assert_persistence_error(
@@ -405,6 +413,188 @@ def test_idempotency_retry_conflicts_null_execution_and_unknown_execution(tmp_pa
         )
 
 
+def test_idempotency_pair_claims_both_absent_in_one_operation(tmp_path: Path) -> None:
+    first, second = _idempotency_pair()
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        results = ledger.claim_idempotency_pair(first, second)
+        assert tuple(result.disposition for result in results) == (
+            IdempotencyDispositionV1.CREATED,
+            IdempotencyDispositionV1.CREATED,
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=first.namespace, idempotency_key=first.idempotency_key
+            )
+            == first
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=second.namespace, idempotency_key=second.idempotency_key
+            )
+            == second
+        )
+
+
+def test_idempotency_pair_first_conflict_does_not_insert_second(tmp_path: Path) -> None:
+    first, second = _idempotency_pair()
+    conflicting_first = _idempotency(
+        12,
+        namespace=first.namespace,
+        idempotency_key=first.idempotency_key,
+    )
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        ledger.claim_idempotency(conflicting_first)
+        with pytest.raises(_IdempotencyPairConflict) as caught:
+            ledger.claim_idempotency_pair(first, second)
+        assert caught.value.index == 0
+        assert caught.value.result.disposition is IdempotencyDispositionV1.CONFLICT
+        assert (
+            ledger.get_idempotency_record(
+                namespace=first.namespace, idempotency_key=first.idempotency_key
+            )
+            == conflicting_first
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=second.namespace, idempotency_key=second.idempotency_key
+            )
+            is None
+        )
+
+
+def test_idempotency_pair_second_conflict_does_not_insert_first(tmp_path: Path) -> None:
+    first, second = _idempotency_pair()
+    conflicting_second = _idempotency(
+        12,
+        namespace=second.namespace,
+        idempotency_key=second.idempotency_key,
+    )
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        ledger.claim_idempotency(conflicting_second)
+        with pytest.raises(_IdempotencyPairConflict) as caught:
+            ledger.claim_idempotency_pair(first, second)
+        assert caught.value.index == 1
+        assert caught.value.result.disposition is IdempotencyDispositionV1.CONFLICT
+        assert (
+            ledger.get_idempotency_record(
+                namespace=first.namespace, idempotency_key=first.idempotency_key
+            )
+            is None
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=second.namespace, idempotency_key=second.idempotency_key
+            )
+            == conflicting_second
+        )
+
+
+def test_idempotency_pair_preserves_existing_and_partial_new_semantics(tmp_path: Path) -> None:
+    first, second = _idempotency_pair()
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        ledger.claim_idempotency(first)
+        first_existing_second_created = ledger.claim_idempotency_pair(first, second)
+        assert tuple(result.disposition for result in first_existing_second_created) == (
+            IdempotencyDispositionV1.EXISTING_SAME,
+            IdempotencyDispositionV1.CREATED,
+        )
+
+    first, second = _idempotency_pair()
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger-second.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        ledger.claim_idempotency(second)
+        first_created_second_existing = ledger.claim_idempotency_pair(first, second)
+        assert tuple(result.disposition for result in first_created_second_existing) == (
+            IdempotencyDispositionV1.CREATED,
+            IdempotencyDispositionV1.EXISTING_SAME,
+        )
+
+    first, second = _idempotency_pair()
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger-both.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        ledger.claim_idempotency(first)
+        ledger.claim_idempotency(second)
+        both_existing = ledger.claim_idempotency_pair(first, second)
+        assert tuple(result.disposition for result in both_existing) == (
+            IdempotencyDispositionV1.EXISTING_SAME,
+            IdempotencyDispositionV1.EXISTING_SAME,
+        )
+
+
+def test_idempotency_pair_unknown_execution_has_no_partial_insert(tmp_path: Path) -> None:
+    first, second = _idempotency_pair()
+    unknown_second = second.model_copy(update={"execution_id": _uuid(1, 99)})
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        _assert_persistence_error(
+            PersistenceErrorCode.UNKNOWN_EXECUTION,
+            lambda: ledger.claim_idempotency_pair(first, unknown_second),
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=first.namespace, idempotency_key=first.idempotency_key
+            )
+            is None
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=second.namespace, idempotency_key=second.idempotency_key
+            )
+            is None
+        )
+
+
+def test_idempotency_pair_preserves_fresh_exact_validation(tmp_path: Path) -> None:
+    first, second = _idempotency_pair()
+    malformed = IdempotencyRecordV1.model_construct(namespace=first.namespace)
+    subclass = type("IdempotencyRecordSubclass", (IdempotencyRecordV1,), {})
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        with pytest.raises(ValueError):
+            ledger.claim_idempotency_pair(malformed, second)
+        with pytest.raises(TypeError):
+            ledger.claim_idempotency_pair(subclass(**first.model_dump(mode="python")), second)
+        with pytest.raises(ValueError, match="distinct keys"):
+            ledger.claim_idempotency_pair(first, first)
+        assert (
+            ledger.get_idempotency_record(
+                namespace=first.namespace, idempotency_key=first.idempotency_key
+            )
+            is None
+        )
+
+
+def test_idempotency_pair_database_failure_rolls_back_all_inserts(tmp_path: Path) -> None:
+    first, second = _idempotency_pair()
+    with open_sqlite_financial_ledger_v1(str(tmp_path / "ledger.db")) as ledger:
+        ledger.reserve_execution(_reservation())
+        connection = cast(Any, ledger)._connection
+        connection.execute(
+            "CREATE TRIGGER fail_pair_second BEFORE INSERT ON clear_idempotency_records_v1 "
+            "WHEN NEW.namespace = 'pair.second' BEGIN SELECT RAISE(ABORT, 'injected'); END"
+        )
+        _assert_persistence_error(
+            PersistenceErrorCode.DATABASE_OPERATION_FAILED,
+            lambda: ledger.claim_idempotency_pair(first, second),
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=first.namespace, idempotency_key=first.idempotency_key
+            )
+            is None
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=second.namespace, idempotency_key=second.idempotency_key
+            )
+            is None
+        )
+
+
 @pytest.mark.parametrize("user_version", [2, 99])
 def test_unsupported_schema_version_fails_closed(tmp_path: Path, user_version: int) -> None:
     path = tmp_path / "ledger.db"
@@ -710,6 +900,7 @@ def test_close_is_idempotent_and_all_operations_after_close_fail(tmp_path: Path)
         ),
         lambda: ledger.list_provider_references(_uuid(1, 1)),
         lambda: ledger.claim_idempotency(_idempotency()),
+        lambda: ledger.claim_idempotency_pair(*_idempotency_pair()),
         lambda: ledger.get_idempotency_record(namespace="request", idempotency_key="key"),
     )
     for operation in operations:

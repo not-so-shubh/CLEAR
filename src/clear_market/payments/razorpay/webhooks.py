@@ -28,12 +28,12 @@ from clear_market.persistence import (
     FinancialLedgerEventV1,
     FinancialLedgerFieldV1,
     FinancialLedgerValueType,
-    IdempotencyDispositionV1,
     IdempotencyRecordV1,
     ProviderReferenceDispositionV1,
     ProviderReferenceV1,
     SQLiteFinancialLedgerV1,
 )
+from clear_market.persistence.sqlite import _IdempotencyPairConflict
 
 _MAX_RAW_BODY_BYTES: Final[int] = 1_048_576
 _SIGNATURE_PATTERN: Final[re.Pattern[str]] = re.compile(r"[0-9A-Fa-f]{64}", flags=re.ASCII)
@@ -295,34 +295,6 @@ def _require_event_semantics(
         _fail(RazorpayWebhookFailureCode.INVALID_WEBHOOK_PAYLOAD)
 
 
-def _claim(
-    *,
-    ledger: SQLiteFinancialLedgerV1,
-    namespace: str,
-    key: str,
-    digest: str,
-    execution_id: str,
-    received_at: datetime,
-    conflict: RazorpayWebhookFailureCode,
-) -> None:
-    result = ledger.claim_idempotency(
-        IdempotencyRecordV1(
-            namespace=namespace,
-            idempotency_key=key,
-            request_fingerprint_sha256=digest,
-            execution_id=execution_id,
-            recorded_at=received_at,
-        )
-    )
-    if result.disposition is IdempotencyDispositionV1.CONFLICT:
-        _fail(conflict)
-    if result.disposition not in {
-        IdempotencyDispositionV1.CREATED,
-        IdempotencyDispositionV1.EXISTING_SAME,
-    }:
-        raise ValueError("unsupported idempotency disposition")
-
-
 def _body_event_id(digest: str) -> str:
     identifier = bytearray(
         hashlib.sha256(_EVENT_ID_SEPARATOR + digest.encode("ascii")).digest()[:16]
@@ -460,24 +432,29 @@ def authenticate_and_record_razorpay_webhook_v1(
     if existing_payment is not None and existing_payment.execution_id != execution_id:
         _fail(RazorpayWebhookFailureCode.PAYMENT_REFERENCE_CONFLICT)
 
-    _claim(
-        ledger=ledger,
-        namespace=_EVENT_ID_NAMESPACE,
-        key=provider_event_id,
-        digest=digest,
-        execution_id=execution_id,
-        received_at=observed_at,
-        conflict=RazorpayWebhookFailureCode.EVENT_ID_CONFLICT,
-    )
-    _claim(
-        ledger=ledger,
-        namespace=_RAW_BODY_NAMESPACE,
-        key=digest,
-        digest=digest,
-        execution_id=execution_id,
-        received_at=observed_at,
-        conflict=RazorpayWebhookFailureCode.WEBHOOK_BODY_CONFLICT,
-    )
+    try:
+        ledger.claim_idempotency_pair(
+            IdempotencyRecordV1(
+                namespace=_EVENT_ID_NAMESPACE,
+                idempotency_key=provider_event_id,
+                request_fingerprint_sha256=digest,
+                execution_id=execution_id,
+                recorded_at=observed_at,
+            ),
+            IdempotencyRecordV1(
+                namespace=_RAW_BODY_NAMESPACE,
+                idempotency_key=digest,
+                request_fingerprint_sha256=digest,
+                execution_id=execution_id,
+                recorded_at=observed_at,
+            ),
+        )
+    except _IdempotencyPairConflict as error:
+        _fail(
+            RazorpayWebhookFailureCode.EVENT_ID_CONFLICT
+            if error.index == 0
+            else RazorpayWebhookFailureCode.WEBHOOK_BODY_CONFLICT
+        )
 
     reference_result = ledger.record_provider_reference(
         ProviderReferenceV1(

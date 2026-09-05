@@ -614,6 +614,13 @@ def test_event_id_conflict_stops_second_body_before_body_claim_or_payment_refere
         )
         assert (
             ledger.get_idempotency_record(
+                namespace=_EVENT_ID_NAMESPACE,
+                idempotency_key=_EVENT_ID,
+            )
+            is not None
+        )
+        assert (
+            ledger.get_idempotency_record(
                 namespace=_RAW_BODY_NAMESPACE,
                 idempotency_key=changed_digest,
             )
@@ -652,6 +659,13 @@ def test_preexisting_raw_body_claim_for_another_execution_is_a_body_conflict(
         _assert_error(
             RazorpayWebhookFailureCode.WEBHOOK_BODY_CONFLICT,
             lambda: _ingest(ledger),
+        )
+        assert (
+            ledger.get_idempotency_record(
+                namespace=_EVENT_ID_NAMESPACE,
+                idempotency_key=_EVENT_ID,
+            )
+            is None
         )
         assert (
             ledger.get_provider_reference(

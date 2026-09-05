@@ -129,6 +129,25 @@ class PersistenceError(RuntimeError):
         return self._code
 
 
+class _IdempotencyPairConflict(RuntimeError):
+    """Internal signal for an atomic idempotency-pair conflict."""
+
+    __slots__ = ("_index", "_result")
+
+    def __init__(self, index: int, result: IdempotencyResultV1) -> None:
+        self._index = index
+        self._result = result
+        super().__init__("idempotency pair conflict")
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+    @property
+    def result(self) -> IdempotencyResultV1:
+        return self._result
+
+
 class _DuplicateKeyError(ValueError):
     pass
 
@@ -811,6 +830,95 @@ class SQLiteFinancialLedgerV1:
             return IdempotencyResultV1(
                 disposition=IdempotencyDispositionV1.CREATED,
                 stored_record=requested,
+            )
+
+    def claim_idempotency_pair(
+        self,
+        first: IdempotencyRecordV1,
+        second: IdempotencyRecordV1,
+    ) -> tuple[IdempotencyResultV1, IdempotencyResultV1]:
+        """Atomically claim two distinct idempotency keys or persist neither new claim."""
+        self._ensure_open()
+        requested = (
+            _fresh_exact_model(
+                first,
+                IdempotencyRecordV1,
+                "record must be a valid exact IdempotencyRecordV1",
+            ),
+            _fresh_exact_model(
+                second,
+                IdempotencyRecordV1,
+                "record must be a valid exact IdempotencyRecordV1",
+            ),
+        )
+        if (
+            requested[0].namespace,
+            requested[0].idempotency_key,
+        ) == (
+            requested[1].namespace,
+            requested[1].idempotency_key,
+        ):
+            raise ValueError("idempotency pair records must use distinct keys")
+
+        with self._write_transaction() as connection:
+            for record in requested:
+                if record.execution_id is not None and not self._execution_exists(
+                    connection, record.execution_id
+                ):
+                    raise PersistenceError(PersistenceErrorCode.UNKNOWN_EXECUTION)
+
+            results: list[IdempotencyResultV1 | None] = []
+            for index, record in enumerate(requested):
+                row = connection.execute(
+                    "SELECT namespace, idempotency_key, request_fingerprint_sha256, execution_id, "
+                    "recorded_at FROM clear_idempotency_records_v1 "
+                    "WHERE namespace = ? AND idempotency_key = ?",
+                    (record.namespace, record.idempotency_key),
+                ).fetchone()
+                if row is None:
+                    results.append(None)
+                    continue
+
+                stored = _idempotency_from_row(row)
+                same = (
+                    stored.request_fingerprint_sha256 == record.request_fingerprint_sha256
+                    and stored.execution_id == record.execution_id
+                )
+                result = IdempotencyResultV1(
+                    disposition=(
+                        IdempotencyDispositionV1.EXISTING_SAME
+                        if same
+                        else IdempotencyDispositionV1.CONFLICT
+                    ),
+                    stored_record=stored,
+                )
+                if result.disposition is IdempotencyDispositionV1.CONFLICT:
+                    raise _IdempotencyPairConflict(index, result)
+                results.append(result)
+
+            for index, record in enumerate(requested):
+                if results[index] is not None:
+                    continue
+                connection.execute(
+                    "INSERT INTO clear_idempotency_records_v1 "
+                    "(namespace, idempotency_key, request_fingerprint_sha256, execution_id, "
+                    "recorded_at) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        record.namespace,
+                        record.idempotency_key,
+                        record.request_fingerprint_sha256,
+                        record.execution_id,
+                        canonical_utc_datetime(record.recorded_at),
+                    ),
+                )
+                results[index] = IdempotencyResultV1(
+                    disposition=IdempotencyDispositionV1.CREATED,
+                    stored_record=record,
+                )
+
+            return cast(
+                tuple[IdempotencyResultV1, IdempotencyResultV1],
+                tuple(results),
             )
 
     def get_idempotency_record(
