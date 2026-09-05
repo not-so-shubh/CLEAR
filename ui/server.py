@@ -20,6 +20,7 @@ from .ai_evidence import (
 from .presentation import PresentationError, build_authority_demo_presentation
 from .product import (
     CloseMarketRequest,
+    CreateBuyerDraftRequest,
     CreateMarketRequest,
     CreateMerchantRequest,
     ProductService,
@@ -40,6 +41,8 @@ _LIVE_AI_EVIDENCE_LOCK = Lock()
 _PRODUCT_MARKET_PATH = re.compile(r"/api/product-v1/markets/([^/]+)")
 _PRODUCT_OFFER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/offers")
 _PRODUCT_CLOSE_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/close")
+_PRODUCT_DRAFT_INTERPRET_PATH = re.compile(r"/api/product-v1/buyer-drafts/([^/]+)/interpret")
+_PRODUCT_DRAFT_FREEZE_PATH = re.compile(r"/api/product-v1/buyer-drafts/([^/]+)/freeze")
 
 _PRODUCT_ERROR_STATUSES = {
     ProductErrorCode.INVALID_REQUEST: HTTPStatus.BAD_REQUEST,
@@ -52,6 +55,8 @@ _PRODUCT_ERROR_STATUSES = {
     ProductErrorCode.OFFER_AUTHENTICATION_FAILED: HTTPStatus.INTERNAL_SERVER_ERROR,
     ProductErrorCode.CERTIFICATE_NOT_VERIFIED: HTTPStatus.INTERNAL_SERVER_ERROR,
     ProductErrorCode.PERSISTED_DATA_INVALID: HTTPStatus.INTERNAL_SERVER_ERROR,
+    ProductErrorCode.DRAFT_NOT_INTERPRETABLE: HTTPStatus.CONFLICT,
+    ProductErrorCode.DRAFT_NOT_FREEZABLE: HTTPStatus.CONFLICT,
 }
 
 
@@ -191,6 +196,52 @@ class _Handler(BaseHTTPRequestHandler):
                 payload = service.create_market(parse_product_json(body, CreateMarketRequest))
                 self._send_json(payload, HTTPStatus.CREATED)
                 return
+            if requested == "/api/product-v1/buyer-drafts":
+                payload = service.create_buyer_draft(
+                    parse_product_json(body, CreateBuyerDraftRequest)
+                )
+                self._send_json(payload, HTTPStatus.CREATED)
+                return
+            interpret_match = _PRODUCT_DRAFT_INTERPRET_PATH.fullmatch(requested)
+            if interpret_match is not None:
+                if body:
+                    parse_product_json(body, CloseMarketRequest)
+                if not _LIVE_AI_EVIDENCE_LOCK.acquire(blocking=False):
+                    self._send_json(
+                        {
+                            "market_id": interpret_match.group(1),
+                            "result": "UNAVAILABLE",
+                            "state": "DRAFT",
+                            "authority": "ADVISORY_ONLY",
+                            "policy_state": "NOT_FROZEN",
+                            "provider_protocol": "OPENAI_COMPATIBLE",
+                            "provider_identity": ("EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER"),
+                            "provider_name": None,
+                            "model": None,
+                            "provider_invoked": False,
+                            "code": "LIVE_AI_BUSY",
+                            "message": "Another current-run AI request is already running.",
+                        },
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                try:
+                    payload = service.interpret_buyer_draft(interpret_match.group(1))
+                finally:
+                    _LIVE_AI_EVIDENCE_LOCK.release()
+                status = {
+                    "SUCCESS": HTTPStatus.OK,
+                    "UNAVAILABLE": HTTPStatus.SERVICE_UNAVAILABLE,
+                    "FAILED": HTTPStatus.BAD_GATEWAY,
+                }.get(payload.get("result"), HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._send_json(payload, status)
+                return
+            freeze_match = _PRODUCT_DRAFT_FREEZE_PATH.fullmatch(requested)
+            if freeze_match is not None:
+                if body:
+                    parse_product_json(body, CloseMarketRequest)
+                self._send_json(service.freeze_buyer_draft(freeze_match.group(1)))
+                return
             offer_match = _PRODUCT_OFFER_PATH.fullmatch(requested)
             if offer_match is not None:
                 payload = service.submit_offer(
@@ -227,6 +278,22 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         requested = urlparse(self.path).path
         if requested.startswith("/api/product-v1/"):
+            if requested == "/api/product-v1/merchants":
+                try:
+                    self._send_json(ProductService().list_merchants())
+                except ProductServiceError as error:
+                    self._send_product_error(error)
+                except Exception:
+                    self._send_json(
+                        {
+                            "error": {
+                                "code": "PRODUCT_INTERNAL_FAILURE",
+                                "message": "Product request failed closed.",
+                            }
+                        },
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                return
             market_match = _PRODUCT_MARKET_PATH.fullmatch(requested)
             if market_match is None:
                 self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)

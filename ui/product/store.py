@@ -45,6 +45,23 @@ class MarketRecord:
     state: str
     created_at: str
     closed_at: str | None
+    canonical_buyer_policy: bytes | None = None
+
+
+@dataclass(frozen=True)
+class BuyerDraftRecord:
+    market_id: str
+    buyer_id: str
+    buyer_text: str
+    eligible_merchant_ids: tuple[str, ...]
+    offer_deadline: str
+    state: str
+    canonical_interpreted_policy: bytes | None
+    provider_name: str | None
+    model: str | None
+    provider_invoked: bool
+    created_at: str
+    updated_at: str
 
 
 @dataclass(frozen=True)
@@ -118,7 +135,8 @@ class ProductStore:
                     offer_deadline TEXT NOT NULL,
                     state TEXT NOT NULL CHECK (state IN ('OPEN', 'CLOSED')),
                     created_at TEXT NOT NULL,
-                    closed_at TEXT
+                    closed_at TEXT,
+                    canonical_buyer_policy BLOB
                 );
 
                 CREATE TABLE IF NOT EXISTS product_offers (
@@ -145,8 +163,33 @@ class ProductStore:
                     winner_merchant_ids_json TEXT NOT NULL,
                     total_payment_paise INTEGER NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS product_buyer_drafts (
+                    market_id TEXT PRIMARY KEY,
+                    buyer_id TEXT NOT NULL,
+                    buyer_text TEXT NOT NULL,
+                    eligible_merchant_ids_json TEXT NOT NULL,
+                    offer_deadline TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK (
+                        state IN ('DRAFT', 'INTERPRETING', 'INTERPRETED', 'FROZEN')
+                    ),
+                    canonical_interpreted_policy BLOB,
+                    provider_name TEXT,
+                    model TEXT,
+                    provider_invoked INTEGER NOT NULL CHECK (provider_invoked IN (0, 1)),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
+            market_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(product_markets)").fetchall()
+            }
+            if "canonical_buyer_policy" not in market_columns:
+                connection.execute(
+                    "ALTER TABLE product_markets ADD COLUMN canonical_buyer_policy BLOB"
+                )
 
     @contextmanager
     def connection(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
@@ -203,10 +246,30 @@ class ProductStore:
         return None if row is None else MerchantRecord(**dict(row))
 
     @staticmethod
+    def list_merchants(connection: sqlite3.Connection) -> tuple[MerchantRecord, ...]:
+        rows = connection.execute(
+            "SELECT * FROM product_merchants ORDER BY created_at, merchant_id"
+        ).fetchall()
+        return tuple(MerchantRecord(**dict(row)) for row in rows)
+
+    @staticmethod
     def insert_market(connection: sqlite3.Connection, record: MarketRecord) -> None:
         connection.execute(
             """
-            INSERT INTO product_markets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO product_markets (
+                market_id,
+                buyer_id,
+                requested_quantity,
+                minimum_acceptable_quantity,
+                max_winners,
+                max_total_payment_paise,
+                eligible_merchant_ids_json,
+                offer_deadline,
+                state,
+                created_at,
+                closed_at,
+                canonical_buyer_policy
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.market_id,
@@ -220,6 +283,7 @@ class ProductStore:
                 record.state,
                 record.created_at,
                 record.closed_at,
+                record.canonical_buyer_policy,
             ),
         )
 
@@ -235,6 +299,141 @@ class ProductStore:
             json.loads(values.pop("eligible_merchant_ids_json"))
         )
         return MarketRecord(**values)
+
+    @staticmethod
+    def insert_buyer_draft(connection: sqlite3.Connection, record: BuyerDraftRecord) -> None:
+        connection.execute(
+            """
+            INSERT INTO product_buyer_drafts (
+                market_id,
+                buyer_id,
+                buyer_text,
+                eligible_merchant_ids_json,
+                offer_deadline,
+                state,
+                canonical_interpreted_policy,
+                provider_name,
+                model,
+                provider_invoked,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.market_id,
+                record.buyer_id,
+                record.buyer_text,
+                json.dumps(record.eligible_merchant_ids, separators=(",", ":")),
+                record.offer_deadline,
+                record.state,
+                record.canonical_interpreted_policy,
+                record.provider_name,
+                record.model,
+                int(record.provider_invoked),
+                record.created_at,
+                record.updated_at,
+            ),
+        )
+
+    @staticmethod
+    def get_buyer_draft(connection: sqlite3.Connection, market_id: str) -> BuyerDraftRecord | None:
+        row = connection.execute(
+            "SELECT * FROM product_buyer_drafts WHERE market_id = ?", (market_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        values = dict(row)
+        values["eligible_merchant_ids"] = tuple(
+            json.loads(values.pop("eligible_merchant_ids_json"))
+        )
+        values["provider_invoked"] = bool(values["provider_invoked"])
+        return BuyerDraftRecord(**values)
+
+    @staticmethod
+    def claim_buyer_draft_interpretation(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        provider_name: str,
+        model: str,
+        updated_at: str,
+    ) -> None:
+        cursor = connection.execute(
+            """
+            UPDATE product_buyer_drafts
+            SET state = 'INTERPRETING', canonical_interpreted_policy = NULL,
+                provider_name = ?, model = ?, provider_invoked = 0, updated_at = ?
+            WHERE market_id = ? AND state = 'DRAFT'
+            """,
+            (provider_name, model, updated_at, market_id),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("buyer draft interpretation claim failed")
+
+    @staticmethod
+    def complete_buyer_draft_interpretation(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        canonical_policy: bytes,
+        provider_name: str,
+        model: str,
+        updated_at: str,
+    ) -> None:
+        cursor = connection.execute(
+            """
+            UPDATE product_buyer_drafts
+            SET state = 'INTERPRETED', canonical_interpreted_policy = ?,
+                provider_name = ?, model = ?, provider_invoked = 1, updated_at = ?
+            WHERE market_id = ? AND state = 'INTERPRETING'
+            """,
+            (canonical_policy, provider_name, model, updated_at, market_id),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("buyer draft interpretation completion failed")
+
+    @staticmethod
+    def reset_buyer_draft_after_failure(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        provider_invoked: bool,
+        updated_at: str,
+    ) -> None:
+        connection.execute(
+            """
+            UPDATE product_buyer_drafts
+            SET state = 'DRAFT', canonical_interpreted_policy = NULL,
+                provider_invoked = ?, updated_at = ?
+            WHERE market_id = ? AND state = 'INTERPRETING'
+            """,
+            (int(provider_invoked), updated_at, market_id),
+        )
+
+    @staticmethod
+    def mark_buyer_draft_frozen(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        updated_at: str,
+    ) -> None:
+        cursor = connection.execute(
+            """
+            UPDATE product_buyer_drafts SET state = 'FROZEN', updated_at = ?
+            WHERE market_id = ? AND state = 'INTERPRETED'
+            """,
+            (updated_at, market_id),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("buyer draft freeze transition failed")
+
+    @staticmethod
+    def count_markets(connection: sqlite3.Connection, market_id: str) -> int:
+        row = connection.execute(
+            "SELECT COUNT(*) AS count FROM product_markets WHERE market_id = ?", (market_id,)
+        ).fetchone()
+        assert row is not None
+        return int(row["count"])
 
     @staticmethod
     def insert_offer(connection: sqlite3.Connection, record: OfferRecord) -> None:

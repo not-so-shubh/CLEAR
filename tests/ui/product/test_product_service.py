@@ -154,11 +154,12 @@ def test_closed_market_result_survives_store_reopen(tmp_path: Path) -> None:
 def test_product_package_has_no_demo_fixture_dependency() -> None:
     product_root = Path(service_module.__file__).parent
     forbidden = (
-        "clear_market.demo",
-        "_certificate_fixture",
-        "_buyer_policy",
-        "_merchant_source",
-        "run_demo_v1",
+        "from clear_market.demo",
+        "import clear_market.demo",
+        "_certificate_fixture(",
+        "_buyer_policy(",
+        "_merchant_source(",
+        "run_demo_v1(",
     )
     sources = "\n".join(path.read_text(encoding="utf-8") for path in product_root.glob("*.py"))
     for name in forbidden:

@@ -7,14 +7,19 @@
     <meta name="theme-color" content="#f4f4f0" />
     <title>CLEAR — Agents propose. Rules decide.</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/product.css" />
   </head>
-  <body data-state="IDLE">
-    <a class="skip-link" href="#demo">Skip to demo</a>
+  <body data-state="IDLE" data-view="buyer">
+    <a class="skip-link" href="#buyer-workspace">Skip to workspace</a>
     <div class="reading-progress" aria-hidden="true"></div>
     <header class="site-header">
       <a class="wordmark" href="#top" aria-label="CLEAR home"><span class="wordmark-mark" aria-hidden="true">//</span>clear<span class="wordmark-period">.</span></a>
+      <div class="app-switch" role="group" aria-label="Application view">
+        <button type="button" data-view-target="buyer" aria-pressed="true">Buyer</button>
+        <button type="button" data-view-target="evidence" aria-pressed="false">Evidence</button>
+      </div>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">Menu <span aria-hidden="true">+</span></button>
-      <nav id="primary-nav" aria-label="Primary navigation">
+      <nav id="primary-nav" aria-label="Evidence navigation" data-evidence-nav>
         <a href="#evidence">The demo <span aria-hidden="true">↗</span></a>
         <a href="#supporting">Evidence</a>
         <a href="#architecture">How it works</a>
@@ -22,7 +27,110 @@
       </nav>
     </header>
 
-    <main id="top">
+    <main class="buyer-shell" id="buyer-workspace" data-app-view="buyer">
+      <section class="buyer-intro" aria-labelledby="buyer-title">
+        <div>
+          <p class="kicker">CLEAR · BUYER WORKSPACE</p>
+          <h1 id="buyer-title">Say what you need.<br /><em>Freeze only what you mean.</em></h1>
+        </div>
+        <div class="buyer-intro-copy">
+          <p>Natural language begins the workflow. Strict production parsing turns the model response into a reviewable interpretation.</p>
+          <p class="buyer-boundary-copy">AI interprets the request. AI does not open financial authority.</p>
+        </div>
+      </section>
+
+      <section class="buyer-work-grid" aria-label="Create a new buyer market">
+        <form class="buyer-form" id="buyer-draft-form">
+          <div class="buyer-section-heading">
+            <span class="buyer-step">01 /</span>
+            <div><p class="micro-label">NEW MARKET</p><h2>Commercial intent</h2></div>
+          </div>
+
+          <label class="buyer-field" for="buyer-text">
+            <span>What do you need?</span>
+            <textarea id="buyer-text" name="buyer_text" rows="7" required maxlength="32768" placeholder="Example: Buy 50 edge systems within a ₹150,000 budget. Require at least 16 GB RAM and use at most two suppliers."></textarea>
+            <small>Write arbitrary commercial intent. Placeholder text is never submitted automatically.</small>
+          </label>
+
+          <fieldset class="merchant-picker">
+            <legend>Eligible merchants</legend>
+            <p class="field-help">Loaded from this server’s runtime product database.</p>
+            <div id="buyer-merchant-list" class="merchant-choice-list" aria-live="polite">
+              <p class="muted">Loading runtime merchants…</p>
+            </div>
+          </fieldset>
+
+          <label class="buyer-field buyer-deadline" for="buyer-deadline">
+            <span>Offer deadline</span>
+            <input id="buyer-deadline" name="offer_deadline" type="datetime-local" required />
+            <small>The server requires a future deadline and records the canonical UTC time.</small>
+          </label>
+
+          <div class="buyer-actions">
+            <button class="button button-primary" id="interpret-request" type="submit">
+              <span data-interpret-label>Interpret request</span><span class="button-arrow" aria-hidden="true">↗</span>
+            </button>
+            <button class="text-link buyer-new-draft" id="new-buyer-draft" type="button" hidden>Start a new draft</button>
+          </div>
+          <p class="action-note" id="buyer-action-status" role="status" aria-live="polite">Choose runtime merchants, enter intent, and set a deadline. No market authority exists yet.</p>
+        </form>
+
+        <aside class="buyer-authority-map" aria-label="Buyer authority boundary">
+          <p class="micro-label">AUTHORITY BOUNDARY</p>
+          <ol>
+            <li data-buyer-stage="draft"><span>01</span><div><strong>Buyer draft</strong><small>COMMERCIAL INPUT</small></div></li>
+            <li data-buyer-stage="interpretation"><span>02</span><div><strong>AI interpretation</strong><small>ADVISORY ONLY</small></div></li>
+            <li data-buyer-stage="freeze"><span>03</span><div><strong>Explicit freeze</strong><small>BUYER CONFIRMATION</small></div></li>
+            <li data-buyer-stage="market"><span>04</span><div><strong>Open market</strong><small>RUNTIME POLICY</small></div></li>
+          </ol>
+          <p>Nothing crosses into market authority until the buyer explicitly freezes the validated interpretation.</p>
+        </aside>
+      </section>
+
+      <section class="buyer-result" id="buyer-interpretation" aria-live="polite" hidden>
+        <div class="buyer-result-head">
+          <div><p class="micro-label">AI INTERPRETATION</p><h2>Advisory only</h2></div>
+        <p class="buyer-validation-state" data-buyer-field="validation-state">VALIDATED · NOT YET MARKET POLICY</p>
+        </div>
+        <p class="buyer-error-code mono" data-buyer-field="error-code" hidden></p>
+        <p class="buyer-error-code mono" data-buyer-field="diagnostic-code" hidden></p>
+        <div class="buyer-candidate-diagnostic mono" data-buyer-field="candidate-diagnostic" hidden></div>
+        <p class="buyer-result-message" data-buyer-field="message"></p>
+        <div data-buyer-interpretation-success>
+          <div class="buyer-policy-metrics">
+            <div><span>QUANTITY</span><strong data-buyer-field="requested-quantity">—</strong></div>
+            <div><span>MINIMUM ACCEPTABLE</span><strong data-buyer-field="minimum-quantity">—</strong></div>
+            <div><span>MAXIMUM SUPPLIERS</span><strong data-buyer-field="max-suppliers">—</strong></div>
+            <div><span>BUDGET</span><strong data-buyer-field="budget">—</strong><small>PAISE</small></div>
+          </div>
+          <div class="buyer-rule-columns">
+            <section><p class="micro-label">HARD CONSTRAINTS</p><div class="buyer-rule-list" data-buyer-field="hard-rules"></div></section>
+            <section><p class="micro-label">SOFT PREFERENCES</p><div class="buyer-rule-list" data-buyer-field="soft-rules"></div></section>
+          </div>
+          <div class="buyer-provider-line">
+            <div><span>EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER</span><strong data-buyer-field="provider-name">—</strong></div>
+            <div><span>MODEL</span><strong data-buyer-field="model">—</strong></div>
+          </div>
+          <div class="buyer-freeze-row">
+            <div><p>Review these exact semantics before creating market authority.</p><p class="mono">AI DID NOT OPEN FINANCIAL AUTHORITY.</p></div>
+            <button class="button button-secondary" id="freeze-buyer-policy" type="button"><span>Freeze buyer policy</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="buyer-frozen" id="buyer-frozen" aria-live="polite" hidden>
+        <div class="buyer-frozen-title"><p class="micro-label">BuyerPolicyV2</p><h2>Frozen</h2></div>
+        <div class="buyer-market-open"><span>MARKET</span><strong data-frozen-field="market-state">OPEN</strong></div>
+        <dl>
+          <div><dt>MARKET ID</dt><dd data-frozen-field="market-id">—</dd></div>
+          <div><dt>POLICY COMMITMENT</dt><dd data-frozen-field="commitment">—</dd></div>
+        </dl>
+        <p>AI INTERPRETED THE REQUEST. AI DID NOT OPEN FINANCIAL AUTHORITY. The buyer’s explicit freeze created this persisted market policy.</p>
+        <p class="buyer-scope-note">No winner, allocation, certificate, Governor decision, Razorpay action, or payment is claimed here.</p>
+      </section>
+    </main>
+
+    <main id="top" data-app-view="evidence" hidden>
       <section class="hero act" id="demo" aria-labelledby="hero-title">
         <div class="ambient ambient-one" aria-hidden="true"></div>
         <div class="ambient ambient-two" aria-hidden="true"></div>
@@ -176,8 +284,9 @@
 
       <section class="limitations" aria-labelledby="limitations-title"><p class="kicker">CLAIM BOUNDARIES</p><h2 id="limitations-title">Proof has <em>limits.</em></h2><p>A certificate establishes consistency under the protocol and supplied trust roots. It does not establish physical truth, fulfillment, or settlement.</p><details class="limitations-detail"><summary>What CLEAR does not claim <span aria-hidden="true">+</span></summary><p>General strategy-proofness · general truthfulness · general incentive compatibility · collusion-proof · Sybil-proof · fraud-proof · formal verification · ZK · blockchain · exactly-once network delivery · transcript completeness · proof of inventory · proof of shipment · physical fulfillment · settlement from transfer creation · unsupported refunds/reversals · unsupported live capture · real-money movement.</p></details></section>
     </main>
-    <footer><div class="footer-top"><a class="wordmark" href="#top" aria-label="Back to top">clear.</a><p>Clarity is the<br />whole point.</p><a class="back-top" href="#top" aria-label="Back to top">↑</a></div><div class="footer-bottom"><span>PROOF-CARRYING MARKET INFRASTRUCTURE</span><span>NO VALID CERTIFICATE = NO MONEY ACTION</span></div></footer>
+    <footer data-app-view="evidence" hidden><div class="footer-top"><a class="wordmark" href="#top" aria-label="Back to top">clear.</a><p>Clarity is the<br />whole point.</p><a class="back-top" href="#top" aria-label="Back to top">↑</a></div><div class="footer-bottom"><span>PROOF-CARRYING MARKET INFRASTRUCTURE</span><span>NO VALID CERTIFICATE = NO MONEY ACTION</span></div></footer>
     <noscript><p class="noscript-note">Enable JavaScript to run the interactive demo. The architecture and evidence notes remain available below.</p></noscript>
     <script src="/app.js" defer></script>
+    <script src="/product_app.js" defer></script>
   </body>
 </html>

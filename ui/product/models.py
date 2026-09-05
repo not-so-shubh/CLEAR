@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from clear_market.domain import MAX_MONEY_PAISE, MAX_QUANTITY, MAX_SELLERS, MIN_SELLERS
 
 _MAX_TEXT_CHARS = 256
+_MAX_BUYER_TEXT_BYTES = 32_768
 
 type PositiveQuantityInput = Annotated[int, Field(strict=True, ge=1, le=MAX_QUANTITY)]
 type MoneyInput = Annotated[int, Field(strict=True, ge=0, le=MAX_MONEY_PAISE)]
@@ -54,6 +55,36 @@ class CreateMarketRequest(BaseModel):
     @field_validator("eligible_merchant_ids")
     @classmethod
     def _unique_eligible_merchants(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("eligible merchant IDs must be unique")
+        return value
+
+
+class CreateBuyerDraftRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    buyer_text: str
+    eligible_merchant_ids: Annotated[
+        list[str], Field(min_length=MIN_SELLERS, max_length=MAX_SELLERS)
+    ]
+    offer_deadline: str
+
+    @field_validator("buyer_text")
+    @classmethod
+    def _bounded_buyer_text(cls, value: str) -> str:
+        if "\x00" in value or value.strip() == "":
+            raise ValueError("buyer text must not contain NUL")
+        try:
+            encoded = value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as error:
+            raise ValueError("buyer text must be valid UTF-8") from error
+        if not 1 <= len(encoded) <= _MAX_BUYER_TEXT_BYTES:
+            raise ValueError("buyer text is outside its UTF-8 byte bound")
+        return value
+
+    @field_validator("eligible_merchant_ids")
+    @classmethod
+    def _unique_draft_merchants(cls, value: list[str]) -> list[str]:
         if len(set(value)) != len(value):
             raise ValueError("eligible merchant IDs must be unique")
         return value
