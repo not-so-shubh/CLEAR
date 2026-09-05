@@ -330,6 +330,8 @@ def test_versions_and_public_api_are_exact() -> None:
         "AllocationClaimV2",
         "MerchantOfferEvidenceV2",
         "AllocationCertificateV2",
+        "allocation_claim_v2_from_allocation_v2",
+        "build_allocation_certificate_v2",
         "canonical_allocation_certificate_v2_bytes",
         "allocation_certificate_v2_digest",
         "MAX_CANONICAL_ALLOCATION_CERTIFICATE_V2_BYTES",
