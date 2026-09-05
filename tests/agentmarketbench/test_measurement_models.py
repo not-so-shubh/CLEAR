@@ -1,4 +1,5 @@
 import re
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -8,6 +9,7 @@ from clear_market.agentmarketbench.measurement_models import (
     AGENT_MARKET_BENCH_CASE_RUN_V1_VERSION,
     AGENT_MARKET_BENCH_METHOD_EVALUATION_V1_VERSION,
     AGENT_MARKET_BENCH_METRIC_OBSERVATION_V1_VERSION,
+    AGENT_MARKET_BENCH_METRIC_SEMANTICS_V1_1_VERSION,
     AGENT_MARKET_BENCH_METRIC_SUMMARY_V1_VERSION,
     AGENT_MARKET_BENCH_METRICS_V1_VERSION,
     AGENT_MARKET_BENCH_PAIRED_SUMMARY_V1_VERSION,
@@ -39,6 +41,37 @@ from clear_market.agentmarketbench.runner import (
     run_agent_market_bench_case_v1,
     run_agent_market_bench_cases_v1,
 )
+
+
+def test_metric_semantic_revision_preserves_case_run_v1_schema() -> None:
+    assert AGENT_MARKET_BENCH_METRICS_V1_VERSION == "agent-market-bench-metrics-v1"
+    assert (
+        AGENT_MARKET_BENCH_METRIC_SEMANTICS_V1_1_VERSION
+        == "agent-market-bench-metric-semantics-v1.1"
+    )
+    fields = AgentMarketBenchCaseRunV1.model_fields
+    assert tuple(fields) == (
+        "schema_version",
+        "agent_market_bench_case_run_version",
+        "runner_version",
+        "metrics_version",
+        "statistics_version",
+        "case_id",
+        "seed",
+        "case_digest_sha256",
+        "execution_order",
+        "evaluations",
+        "scenario_assessments",
+    )
+    for name, literal in (
+        ("schema_version", "1"),
+        ("agent_market_bench_case_run_version", "agent-market-bench-case-run-v1"),
+        ("runner_version", "agent-market-bench-runner-v1"),
+        ("metrics_version", "agent-market-bench-metrics-v1"),
+        ("statistics_version", "agent-market-bench-statistics-v1"),
+    ):
+        assert fields[name].default == literal
+        assert get_args(fields[name].annotation) == (literal,)
 
 
 def test_exact_versions_and_enums() -> None:

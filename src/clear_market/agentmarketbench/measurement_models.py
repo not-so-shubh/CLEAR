@@ -24,6 +24,9 @@ from clear_market.domain import CanonicalUUID4
 
 AGENT_MARKET_BENCH_RUNNER_V1_VERSION: Final[str] = "agent-market-bench-runner-v1"
 AGENT_MARKET_BENCH_METRICS_V1_VERSION: Final[str] = "agent-market-bench-metrics-v1"
+AGENT_MARKET_BENCH_METRIC_SEMANTICS_V1_1_VERSION: Final[str] = (
+    "agent-market-bench-metric-semantics-v1.1"
+)
 AGENT_MARKET_BENCH_STATISTICS_V1_VERSION: Final[str] = "agent-market-bench-statistics-v1"
 AGENT_MARKET_BENCH_RATIONAL_V1_VERSION: Final[str] = "agent-market-bench-rational-v1"
 AGENT_MARKET_BENCH_METRIC_OBSERVATION_V1_VERSION: Final[str] = (
@@ -544,6 +547,7 @@ class AgentMarketBenchRunV1(BaseModel):
 __all__ = (  # noqa: RUF022
     "AGENT_MARKET_BENCH_RUNNER_V1_VERSION",
     "AGENT_MARKET_BENCH_METRICS_V1_VERSION",
+    "AGENT_MARKET_BENCH_METRIC_SEMANTICS_V1_1_VERSION",
     "AGENT_MARKET_BENCH_STATISTICS_V1_VERSION",
     "AGENT_MARKET_BENCH_RATIONAL_V1_VERSION",
     "AGENT_MARKET_BENCH_METRIC_OBSERVATION_V1_VERSION",

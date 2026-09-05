@@ -1,6 +1,7 @@
 # AgentMarketBench Runner V1
 
-Slice 24D is the measurement layer for AgentMarketBench V1. It runs the nine
+Slice 24D is the measurement layer for AgentMarketBench V1. Slice 24E-R1
+repairs its oracle-relative welfare comparability semantics. It runs the nine
 frozen methods from Slice 24C, evaluates their decisions against the complete
 latent case truth, records scenario classifications, and produces exact
 paired summaries. It does not choose a winner, tune a method, execute a
@@ -25,6 +26,26 @@ agent-market-bench-run-summary-v1
 agent-market-bench-run-v1
 ```
 
+The existing `agent-market-bench-metrics-v1` identifier remains the V1
+measurement observation/schema family in this slice. All existing model
+literals and schemas, including `AgentMarketBenchCaseRunV1`, remain unchanged.
+The corrected semantic interpretation is identified separately by:
+
+```python
+AGENT_MARKET_BENCH_METRIC_SEMANTICS_V1_1_VERSION: Final[str] = (
+    "agent-market-bench-metric-semantics-v1.1"
+)
+```
+
+This exported constant is not an added field in any existing V1 model. Failed
+final attempt #1 used source commit
+`93073144db6128d7e23558545e5d544e350ad292` and the pre-repair raw-welfare
+oracle-comparison semantics. Repaired source uses
+`agent-market-bench-metric-semantics-v1.1`; this is not claimed to be
+byte-compatible metric behavior. The source commit and the future replacement
+final-evidence protocol's explicit semantic revision distinguish the two.
+Slice 24E-R2 must carry that revision in its manifest and metadata.
+
 Ordinary public economic methods remain latent-free and receive only the
 `AgentMarketBenchMarketInputV1`. `FULL_INFORMATION_ORACLE` is the sole
 case-aware economic method and reads latent truth during its call. After method
@@ -40,7 +61,7 @@ side-effect claim, or general V2 truthfulness/strategy-proofness claim. Slice
 24D makes no Sybil or collusion prevention claim and makes no prompt-injection
 robustness claim because AI is not exercised.
 
-## Latent realization
+## Raw latent realization
 
 For each result line, the metrics layer resolves the exact latent line by
 `(merchant_id, sku_id)`. Allocated quantity is capped at true availability for
@@ -58,13 +79,48 @@ Across realized units:
 ```text
 realized_buyer_value = sum(quantity * true_unit_buyer_value)
 realized_true_cost   = sum(quantity * true_unit_cost)
-realized_welfare     = realized_buyer_value - realized_true_cost
+raw_realized_welfare = realized_buyer_value - realized_true_cost
 buyer_surplus        = realized_buyer_value - full contractual total payment
 merchant_surplus     = full contractual total payment - realized_true_cost
 ```
 
-Thus buyer surplus plus merchant surplus equals realized welfare, including
-the deliberate penalty for contractual payment on impossible excess units.
+`realize_agent_market_bench_method_v1` retains this raw diagnostic truth:
+realized quantity, realized buyer value, realized true cost,
+`realized_welfare_paise`, capacity excess, and latent hard-violation units.
+Raw welfare is never clamped or erased when realization falls below the
+buyer's minimum. Full contractual payment remains in both surplus formulas,
+including payment on impossible excess units.
+
+## Minimum-qualified benchmark welfare
+
+Oracle-relative benchmark welfare uses exactly this rule for both the method
+and the full-information oracle:
+
+```text
+benchmark_welfare = 0 if realized_quantity < minimum_acceptable_quantity
+                   else raw_realized_welfare
+```
+
+The full-information oracle only accepts allocations satisfying
+`minimum_acceptable_quantity`. Oracle-relative welfare comparisons therefore
+must use the same minimum-quantity feasibility domain. Latent-hard failing
+lines already contribute no realized quantity, value, cost, or welfare. If
+the surviving latent-valid allocation reaches the minimum, its raw welfare
+remains comparable to the oracle. The rule does not additionally gate on
+requested quantity, full completion, scenario, method, capacity excess, or
+hard-violation count.
+
+Minimum-qualified welfare determines `WELFARE`, `ALLOCATIVE_EFFICIENCY`,
+`REGRET`, and the oracle nonnegative and method upper-bound invariants. Raw
+realization still determines `COMPLETION`, `BUYER_SURPLUS`,
+`MERCHANT_SURPLUS`, capacity diagnostics, and hard-constraint diagnostics.
+
+When realized quantity reaches the minimum, buyer surplus plus merchant
+surplus equals benchmark `WELFARE`. Below the minimum, their sum remains raw
+realized social surplus while benchmark `WELFARE` is zero. This is a
+benchmark-comparability convention. It is not a claim that partial delivered
+units have no intrinsic value. It is not physical fulfillment evidence and
+does not imply refunds, returns, acceptance, or settlement behavior.
 
 ## Metrics
 
@@ -72,11 +128,11 @@ All values are exact reduced rationals; no floating-point arithmetic is used.
 
 | Metric | Unit | Definition |
 |:---|:---|:---|
-| `ALLOCATIVE_EFFICIENCY` | `RATIO` | Method realized welfare divided by full-information oracle welfare. N/A when oracle welfare is zero. |
-| `REGRET` | `PAISE` | Oracle welfare minus method realized welfare; negative values are an invariant error. |
+| `ALLOCATIVE_EFFICIENCY` | `RATIO` | Method minimum-qualified welfare divided by full-information oracle minimum-qualified welfare. N/A with `ORACLE_WELFARE_ZERO` when the latter is zero. |
+| `REGRET` | `PAISE` | Oracle minimum-qualified welfare minus method minimum-qualified welfare; negative values are an invariant error. |
 | `BUYER_SURPLUS` | `PAISE` | Realized buyer value minus the result's contractual total payment. |
 | `MERCHANT_SURPLUS` | `PAISE` | Result's contractual total payment minus realized true cost. This is aggregate selected-seller surplus, not principal-level anti-Sybil economics. |
-| `WELFARE` | `PAISE` | Realized buyer value minus realized true cost. |
+| `WELFARE` | `PAISE` | Zero below the minimum acceptable realized quantity; otherwise raw realized buyer value minus raw realized true cost. |
 | `COMPLETION` | `RATIO` | Realized quantity divided by requested quantity. |
 | `HARD_CONSTRAINT_VIOLATIONS` | `COUNT` | Contractual allocated units on lines failing latent hard rules. |
 | `MANIPULATION_SUCCESS` | `BINARY` | Scenario-specific rule described below. |
@@ -88,9 +144,13 @@ For a method-not-applicable result, every economic/payment/manipulation metric
 except latency is N/A with `METHOD_NOT_APPLICABLE`; duplicate side effects
 keeps its stronger runtime N/A reason. Latency remains measured because the
 call occurred. For feasible or infeasible results, economic metrics are
-measured. The oracle has efficiency `1/1` whenever oracle welfare is positive.
-An oracle welfare upper-bound violation raises an invariant error rather than
-being silently clamped.
+measured. The oracle has efficiency `1/1` whenever its minimum-qualified
+welfare is positive. Minimum-qualified oracle welfare must be nonnegative.
+A method exceeding the minimum-qualified oracle welfare still raises exactly
+`ValueError("method welfare exceeds full-information oracle welfare")`;
+the repair does not clamp welfare or weaken the oracle. Metric order, units,
+N/A precedence and reasons, manipulation, payment correctness, duplicate-side-
+effect N/A, and latency semantics are unchanged.
 
 Payment correctness independently checks authenticated reported asks for
 ordinary methods, including CLEAR and first-price, independently checks the
@@ -177,5 +237,18 @@ winner fields, or superiority claims are emitted.
 
 Development data may be used for implementation and tests. Slice 24D does not
 import seed partitions and does not generate, inspect, execute, or summarize
-the final holdout. Slice 24E owns the frozen final-holdout execution, report,
-and manifest.
+the final holdout. The original final partition
+`2_000_000_000 .. 2_000_009_999` was opened exactly once and is permanently
+retired after failed attempt #1. Its partial evidence is preserved; the
+original API and CLI cannot execute it again. See
+[the final-holdout incident record](AGENTMARKETBENCH_FINAL_HOLDOUT_V1.md).
+
+The diagnostic-only quarantine `500_000_000 .. 500_020_999` is permanently
+excluded from future replacement holdout selection. Slice 24E-R1 uses frozen
+development cases and diagnostic regressions only; no generated case may use
+a seed `>= 2_000_000_000`. The existing invalid-input test may pass
+`2_147_483_648` solely to verify rejection before any case generation; no
+original-final seed is passed. It does not choose, generate, inspect, or execute
+any replacement holdout. A reviewed replacement must be previously unopened,
+and Slice 24E-R2 must explicitly bind the corrected semantic revision in its
+replacement evidence manifest and metadata.

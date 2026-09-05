@@ -3,6 +3,9 @@ from fractions import Fraction
 import pytest
 
 from clear_market.agentmarketbench.admission import admit_agent_market_bench_market_input_v1
+from clear_market.agentmarketbench.full_information import (
+    run_agent_market_bench_full_information_oracle_v1,
+)
 from clear_market.agentmarketbench.generator import generate_agent_market_bench_case_v1
 from clear_market.agentmarketbench.measurement_models import (
     AgentMarketBenchMetricNotApplicableReasonV1,
@@ -14,6 +17,7 @@ from clear_market.agentmarketbench.method_models import (
     AgentMarketBenchMethodResultV1,
     AgentMarketBenchMethodStatusV1,
 )
+from clear_market.agentmarketbench.methods import run_agent_market_bench_method_v1
 from clear_market.agentmarketbench.metrics import (
     measure_agent_market_bench_method_v1,
     realize_agent_market_bench_method_v1,
@@ -33,6 +37,7 @@ from .test_methods import _attribute, _hard_rule, _MerchantSpec, _SkuSpec
 
 
 def _case_run(seed: int = 100_000_000):
+    assert seed < 2_000_000_000
     case = generate_agent_market_bench_case_v1(seed)
     ticks = iter(range(18))
     return case, run_agent_market_bench_case_v1(case, clock_ns=lambda: next(ticks))
@@ -89,6 +94,14 @@ def _assert_measured_binary(observation, expected: int) -> None:
     assert observation.value is not None
     assert observation.value.numerator == expected
     assert observation.value.denominator == 1
+
+
+def _assert_measured_rational(observation, numerator: int, denominator: int = 1) -> None:
+    assert observation.status is AgentMarketBenchMetricObservationStatusV1.MEASURED
+    assert observation.not_applicable_reason is None
+    assert observation.value is not None
+    assert observation.value.numerator == numerator
+    assert observation.value.denominator == denominator
 
 
 def _assert_scenario_not_defined(observation) -> None:
@@ -423,6 +436,11 @@ def test_protocol_scenario_without_expected_rejection_measures_failure_as_one() 
 def test_malformed_positive_result_against_zero_oracle_raises_instead_of_clamping() -> None:
     case, case_run = _case_run()
     clear = _evaluation(case_run, AgentMarketBenchBaselineV1.CLEAR).result
+    realization = realize_agent_market_bench_method_v1(case, clear)
+    assert (
+        realization.realized_quantity >= case.buyer_policy.market_spec.minimum_acceptable_quantity
+    )
+    assert realization.realized_welfare_paise > 0
     oracle = AgentMarketBenchMethodResultV1(
         method=AgentMarketBenchBaselineV1.FULL_INFORMATION_ORACLE,
         market_id=clear.market_id,
@@ -433,13 +451,185 @@ def test_malformed_positive_result_against_zero_oracle_raises_instead_of_clampin
         winner_count=0,
         lines=(),
     )
-    with pytest.raises(ValueError, match="exceeds"):
+    assert realize_agent_market_bench_method_v1(case, oracle).realized_welfare_paise == 0
+    with pytest.raises(
+        ValueError, match=r"^method welfare exceeds full-information oracle welfare$"
+    ):
         measure_agent_market_bench_method_v1(
             case=case,
             result=clear,
             oracle_result=oracle,
             elapsed_ns=1,
         )
+
+
+def test_quarantined_below_minimum_welfare_preserves_raw_realization() -> None:
+    seed = 500_002_459
+    assert seed < 2_000_000_000
+    case = generate_agent_market_bench_case_v1(seed)
+    assert case.adversarial_scenarios == (AgentMarketBenchAdversarialScenarioV1.FAKE_INVENTORY,)
+    result = run_agent_market_bench_method_v1(
+        method=AgentMarketBenchBaselineV1.RANDOM_QUALIFYING_SELLER,
+        market_input=agent_market_bench_market_input_v1(case),
+    )
+    oracle = run_agent_market_bench_full_information_oracle_v1(case)
+    raw = realize_agent_market_bench_method_v1(case, result)
+    assert case.buyer_policy.market_spec.requested_quantity == 5
+    assert result.fulfilled_quantity == 5
+    assert raw.realized_quantity == 2
+    assert case.buyer_policy.market_spec.minimum_acceptable_quantity == 3
+    assert raw.realized_welfare_paise == 4224
+    assert raw.latent_capacity_excess_units == 3
+    assert oracle.status is AgentMarketBenchMethodStatusV1.INFEASIBLE
+    assert realize_agent_market_bench_method_v1(case, oracle).realized_welfare_paise == 0
+
+    measured = measure_agent_market_bench_method_v1(case, result, oracle, elapsed_ns=1)
+    observations = {item.metric: item for item in measured.observations}
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.WELFARE], 0)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.REGRET], 0)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.COMPLETION], 2, 5)
+    efficiency = observations[AgentMarketBenchMetricV1.ALLOCATIVE_EFFICIENCY]
+    assert efficiency.status is AgentMarketBenchMetricObservationStatusV1.NOT_APPLICABLE
+    assert efficiency.value is None
+    assert (
+        efficiency.not_applicable_reason
+        is AgentMarketBenchMetricNotApplicableReasonV1.ORACLE_WELFARE_ZERO
+    )
+    assert measured.realization == raw
+    assert measured.realization.realized_welfare_paise == 4224
+    assert measured.realization.latent_capacity_excess_units == 3
+    assert realize_agent_market_bench_method_v1(case, result) == raw
+
+
+@pytest.mark.parametrize(
+    ("seed", "method", "raw_welfare", "realized_quantity", "minimum"),
+    (
+        (100_000_549, AgentMarketBenchBaselineV1.RANDOM_QUALIFYING_SELLER, 4792, 4, 6),
+        (100_000_549, AgentMarketBenchBaselineV1.CHEAPEST_QUALIFYING, 4792, 4, 6),
+        (100_000_803, AgentMarketBenchBaselineV1.STATIC_WEIGHTED_SCORE, 9911, 5, 8),
+        (100_000_803, AgentMarketBenchBaselineV1.SEQUENTIAL_NEGOTIATION, 7886, 5, 8),
+    ),
+)
+def test_disclosed_development_welfare_changes_are_exact(
+    seed: int,
+    method: AgentMarketBenchBaselineV1,
+    raw_welfare: int,
+    realized_quantity: int,
+    minimum: int,
+) -> None:
+    assert seed < 2_000_000_000
+    case, case_run = _case_run(seed)
+    evaluation = _evaluation(case_run, method)
+    raw = realize_agent_market_bench_method_v1(case, evaluation.result)
+    assert raw.realized_welfare_paise == raw_welfare > 0
+    assert raw.realized_quantity == realized_quantity
+    assert case.buyer_policy.market_spec.minimum_acceptable_quantity == minimum
+    assert realized_quantity < minimum
+    _assert_measured_rational(_observation(evaluation, AgentMarketBenchMetricV1.WELFARE), 0)
+
+
+def test_below_minimum_welfare_with_positive_oracle_keeps_raw_surpluses() -> None:
+    case = _oracle_case_fixture(
+        "below-minimum-positive-oracle",
+        (
+            _MerchantSpec("partial", (_SkuSpec("sku", 12, 4, ()),)),
+            _MerchantSpec("feasible", (_SkuSpec("sku", 20, 4, ()),)),
+        ),
+        requested_quantity=4,
+        minimum_acceptable_quantity=3,
+        max_winners=1,
+        budget=100,
+        true_quantities={(0, 0): 1},
+        true_costs={(0, 0): 10, (1, 0): 15},
+        true_values={(0, 0): 35, (1, 0): 35},
+    )
+    result = run_agent_market_bench_method_v1(
+        method=AgentMarketBenchBaselineV1.CHEAPEST_QUALIFYING,
+        market_input=agent_market_bench_market_input_v1(case),
+    )
+    oracle = run_agent_market_bench_full_information_oracle_v1(case)
+    raw = realize_agent_market_bench_method_v1(case, result)
+    oracle_raw = realize_agent_market_bench_method_v1(case, oracle)
+    assert result.fulfilled_quantity == 4
+    assert result.total_payment.amount_paise == 48
+    assert raw.realized_quantity == 1 < case.buyer_policy.market_spec.minimum_acceptable_quantity
+    assert raw.realized_buyer_value_paise == 35
+    assert raw.realized_true_cost_paise == 10
+    assert raw.realized_welfare_paise == 25
+    assert oracle.status is AgentMarketBenchMethodStatusV1.FEASIBLE
+    assert oracle_raw.realized_quantity == 4
+    assert oracle_raw.realized_welfare_paise == 80
+
+    measured = measure_agent_market_bench_method_v1(case, result, oracle, elapsed_ns=1)
+    observations = {item.metric: item for item in measured.observations}
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.WELFARE], 0)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.ALLOCATIVE_EFFICIENCY], 0)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.REGRET], 80)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.BUYER_SURPLUS], -13)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.MERCHANT_SURPLUS], 38)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.COMPLETION], 1, 4)
+    buyer = observations[AgentMarketBenchMetricV1.BUYER_SURPLUS].value
+    merchant = observations[AgentMarketBenchMetricV1.MERCHANT_SURPLUS].value
+    assert buyer is not None and merchant is not None
+    assert buyer.numerator + merchant.numerator == raw.realized_welfare_paise == 25
+    assert measured.realization == raw
+    _assert_measured_rational(
+        _metric_observation(case, oracle, oracle, AgentMarketBenchMetricV1.ALLOCATIVE_EFFICIENCY),
+        1,
+    )
+
+
+def test_minimum_qualified_partial_allocation_keeps_welfare_despite_latent_diagnostics() -> None:
+    case = _oracle_case_fixture(
+        "qualified-with-capacity-and-hard-violations",
+        (
+            _MerchantSpec("valid", (_SkuSpec("sku", 12, 4, (_attribute("sla_days", 2),)),)),
+            _MerchantSpec("invalid", (_SkuSpec("sku", 5, 1, (_attribute("sla_days", 2),)),)),
+        ),
+        requested_quantity=5,
+        minimum_acceptable_quantity=3,
+        max_winners=2,
+        budget=100,
+        hard_constraints=(_hard_rule("sla_days", 3, ComparisonOperator.LTE),),
+        true_quantities={(0, 0): 3},
+        true_costs={(0, 0): 10, (1, 0): 3},
+        true_values={(0, 0): 30, (1, 0): 30},
+        latent_attribute_values={(1, 0, "sla_days"): 7},
+    )
+    valid_line = next(line for line in case.latent_lines if line.true_unit_cost.amount_paise == 10)
+    invalid_line = next(line for line in case.latent_lines if line.true_unit_cost.amount_paise == 3)
+    valid = _manual_result_for_case_line(
+        case, valid_line, 4, method=AgentMarketBenchBaselineV1.CHEAPEST_QUALIFYING
+    )
+    invalid = _manual_result_for_case_line(
+        case, invalid_line, 1, method=AgentMarketBenchBaselineV1.CHEAPEST_QUALIFYING
+    )
+    result = AgentMarketBenchMethodResultV1(
+        method=valid.method,
+        market_id=valid.market_id,
+        status=AgentMarketBenchMethodStatusV1.FEASIBLE,
+        admission=valid.admission,
+        fulfilled_quantity=5,
+        total_payment=Money(amount_paise=53),
+        winner_count=2,
+        lines=tuple(sorted((*valid.lines, *invalid.lines), key=lambda line: line.merchant_id)),
+    )
+    oracle = run_agent_market_bench_full_information_oracle_v1(case)
+    measured = measure_agent_market_bench_method_v1(case, result, oracle, elapsed_ns=1)
+    raw = measured.realization
+    assert raw.realized_quantity == case.buyer_policy.market_spec.minimum_acceptable_quantity == 3
+    assert raw.realized_quantity < case.buyer_policy.market_spec.requested_quantity
+    assert raw.latent_capacity_excess_units == 1
+    assert raw.latent_hard_violation_units == 1
+    assert raw.realized_welfare_paise == 60
+    observations = {item.metric: item for item in measured.observations}
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.WELFARE], 60)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.ALLOCATIVE_EFFICIENCY], 1)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.REGRET], 0)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.COMPLETION], 3, 5)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.HARD_CONSTRAINT_VIOLATIONS], 1)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.BUYER_SURPLUS], 37)
+    _assert_measured_rational(observations[AgentMarketBenchMetricV1.MERCHANT_SURPLUS], 23)
 
 
 def test_ordinary_pay_as_bid_payment_correctness_positive_and_mutated_negative() -> None:
@@ -658,10 +848,13 @@ def test_capacity_excess_and_contractual_payment_penalty_are_exact() -> None:
     assert values[AgentMarketBenchMetricV1.BUYER_SURPLUS].numerator == (
         realization.realized_buyer_value_paise - result.total_payment.amount_paise
     )
+    assert realization.realized_quantity < case.buyer_policy.market_spec.minimum_acceptable_quantity
+    assert values[AgentMarketBenchMetricV1.WELFARE].numerator == 0
+    assert values[AgentMarketBenchMetricV1.WELFARE].denominator == 1
     assert (
         values[AgentMarketBenchMetricV1.MERCHANT_SURPLUS].numerator
         + values[AgentMarketBenchMetricV1.BUYER_SURPLUS].numerator
-        == values[AgentMarketBenchMetricV1.WELFARE].numerator
+        == realization.realized_welfare_paise
     )
 
 

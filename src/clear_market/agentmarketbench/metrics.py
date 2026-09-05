@@ -205,6 +205,15 @@ def realize_agent_market_bench_method_v1(
     )
 
 
+def _minimum_qualified_welfare_paise(
+    case: AgentMarketBenchCaseV1,
+    realization: AgentMarketBenchLatentRealizationV1,
+) -> int:
+    if realization.realized_quantity < case.buyer_policy.market_spec.minimum_acceptable_quantity:
+        return 0
+    return realization.realized_welfare_paise
+
+
 def _admitted_reports(
     case: AgentMarketBenchCaseV1,
 ) -> tuple[tuple[AgentMarketBenchReportedOfferV1, ...], AgentMarketBenchAdmissionV1]:
@@ -399,15 +408,16 @@ def measure_agent_market_bench_method_v1(
         raise TypeError("elapsed_ns must be a nonnegative exact int")
     realization = realize_agent_market_bench_method_v1(case=case, result=result)
     oracle_realization = realize_agent_market_bench_method_v1(case=case, result=oracle_result)
-    oracle_welfare = oracle_realization.realized_welfare_paise
-    if oracle_welfare < 0:
+    method_benchmark_welfare = _minimum_qualified_welfare_paise(case, realization)
+    oracle_benchmark_welfare = _minimum_qualified_welfare_paise(case, oracle_realization)
+    if oracle_benchmark_welfare < 0:
         raise ValueError("full-information oracle welfare cannot be negative")
     if (
         result.method is not AgentMarketBenchBaselineV1.FULL_INFORMATION_ORACLE
-        and realization.realized_welfare_paise > oracle_welfare
+        and method_benchmark_welfare > oracle_benchmark_welfare
     ):
         raise ValueError("method welfare exceeds full-information oracle welfare")
-    if oracle_welfare > 0 and realization.realized_welfare_paise < 0:
+    if oracle_realization.realized_welfare_paise > 0 and realization.realized_welfare_paise < 0:
         raise ValueError("method welfare cannot be negative when oracle welfare is positive")
     observations: list[AgentMarketBenchMetricObservationV1] = []
     not_applicable = result.status is AgentMarketBenchMethodStatusV1.NOT_APPLICABLE
@@ -436,22 +446,25 @@ def measure_agent_market_bench_method_v1(
         return AgentMarketBenchMetricEvaluationV1(tuple(observations), realization)
 
     admission = _admitted_reports(case)[1]
-    welfare = realization.realized_welfare_paise
     observations.append(
         _measured(
             AgentMarketBenchMetricV1.ALLOCATIVE_EFFICIENCY,
             Fraction(1, 1)
             if result.method is AgentMarketBenchBaselineV1.FULL_INFORMATION_ORACLE
-            and oracle_welfare > 0
-            else (Fraction(welfare, oracle_welfare) if oracle_welfare > 0 else 0),
+            and oracle_benchmark_welfare > 0
+            else (
+                Fraction(method_benchmark_welfare, oracle_benchmark_welfare)
+                if oracle_benchmark_welfare > 0
+                else 0
+            ),
         )
-        if oracle_welfare != 0
+        if oracle_benchmark_welfare != 0
         else _not_applicable(
             AgentMarketBenchMetricV1.ALLOCATIVE_EFFICIENCY,
             AgentMarketBenchMetricNotApplicableReasonV1.ORACLE_WELFARE_ZERO,
         )
     )
-    regret = oracle_welfare - welfare
+    regret = oracle_benchmark_welfare - method_benchmark_welfare
     if regret < 0:
         raise ValueError("method regret cannot be negative")
     observations.extend(
@@ -465,7 +478,7 @@ def measure_agent_market_bench_method_v1(
                 AgentMarketBenchMetricV1.MERCHANT_SURPLUS,
                 result.total_payment.amount_paise - realization.realized_true_cost_paise,
             ),
-            _measured(AgentMarketBenchMetricV1.WELFARE, welfare),
+            _measured(AgentMarketBenchMetricV1.WELFARE, method_benchmark_welfare),
             _measured(
                 AgentMarketBenchMetricV1.COMPLETION,
                 Fraction(
