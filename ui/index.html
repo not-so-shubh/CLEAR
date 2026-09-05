@@ -142,6 +142,106 @@
 
       <section class="merchant-work-grid" aria-label="Merchant market workspace">
         <div class="merchant-control-column">
+          <section class="merchant-create-panel" aria-labelledby="merchant-setup-title">
+            <div class="merchant-create-heading">
+              <div>
+                <p class="micro-label">RUNTIME MERCHANT</p>
+                <h2 id="merchant-setup-title">Add trusted supply</h2>
+              </div>
+              <button class="button button-secondary" id="toggle-merchant-create" type="button" aria-haspopup="dialog" aria-controls="merchant-create-dialog">Add merchant</button>
+            </div>
+            <p class="action-note" id="merchant-create-status" role="status" aria-live="polite">Creation stores merchant identity and trusted commercial inputs on this server. It triggers no AI, offer, market close, or payment action.</p>
+          </section>
+
+          <dialog class="merchant-create-dialog" id="merchant-create-dialog" aria-labelledby="merchant-create-title" aria-describedby="merchant-create-description">
+            <div class="merchant-create-dialog-frame">
+              <header class="merchant-create-dialog-head">
+                <div>
+                  <p class="micro-label">RUNTIME MERCHANT</p>
+                  <h2 id="merchant-create-title">Add merchant</h2>
+                </div>
+                <p id="merchant-create-description">Define the trusted catalog, inventory, and economic inputs stored by this server. Creation invokes no provider.</p>
+              </header>
+              <p class="action-note merchant-create-dialog-status" id="merchant-create-dialog-status" role="status" aria-live="polite">Complete the required fields. Optional catalog attributes may be added below.</p>
+
+              <form class="merchant-create-form" id="merchant-create-form" novalidate>
+                <div class="merchant-create-grid">
+                  <label class="buyer-field" for="merchant-display-name">
+                    <span>Merchant display name</span>
+                    <input id="merchant-display-name" name="display_name" type="text" required maxlength="256" autocomplete="organization" autofocus />
+                  </label>
+                  <label class="buyer-field" for="merchant-product-name">
+                    <span>Product display name</span>
+                    <input id="merchant-product-name" name="product_display_name" type="text" required maxlength="256" />
+                  </label>
+                  <label class="buyer-field" for="merchant-sku">
+                    <span>Merchant SKU</span>
+                    <input id="merchant-sku" name="merchant_sku" type="text" required maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,127}" spellcheck="false" />
+                  </label>
+                  <label class="buyer-field" for="merchant-inventory-quantity">
+                    <span>Inventory quantity</span>
+                    <input id="merchant-inventory-quantity" name="inventory_quantity" type="number" required min="1" max="1000000" step="1" inputmode="numeric" />
+                  </label>
+                  <label class="buyer-field" for="merchant-unit-cost">
+                    <span>Unit cost basis (₹)</span>
+                    <input id="merchant-unit-cost" name="unit_cost_basis_paise" type="text" required inputmode="decimal" placeholder="400.00" />
+                    <small>Enter rupees with at most two decimal places. The browser sends exact integer paise.</small>
+                  </label>
+                  <label class="buyer-field" for="merchant-minimum-margin">
+                    <span>Minimum margin (₹)</span>
+                    <input id="merchant-minimum-margin" name="minimum_margin_paise" type="text" required inputmode="decimal" placeholder="50.00" />
+                    <small>Added to unit cost by the server-owned economic policy.</small>
+                  </label>
+                  <label class="buyer-field" for="merchant-maximum-offer">
+                    <span>Maximum quantity per offer</span>
+                    <input id="merchant-maximum-offer" name="max_quantity_per_offer" type="number" required min="1" max="1000000" step="1" inputmode="numeric" />
+                  </label>
+                </div>
+
+                <fieldset class="merchant-create-attributes">
+                  <legend>Catalog attributes <span>optional</span></legend>
+                  <p class="field-help">Add canonical product facts. Values support string, integer, or boolean types with CLAIMED or ATTESTED provenance.</p>
+                  <div id="merchant-create-attribute-list"></div>
+                  <button class="text-link merchant-create-quiet-action" id="add-merchant-attribute" type="button">Add attribute</button>
+                </fieldset>
+
+                <div class="merchant-create-actions">
+                  <button class="button button-primary" id="create-merchant" type="submit"><span>Create merchant</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                  <button class="text-link merchant-create-quiet-action" id="cancel-merchant-create" type="button">Cancel</button>
+                </div>
+              </form>
+
+              <template id="merchant-attribute-template">
+                <div class="merchant-create-attribute" data-merchant-attribute-row>
+                  <label>
+                    <span>Attribute key</span>
+                    <input name="attribute_key" type="text" required maxlength="128" pattern="[a-z][a-z0-9_.-]{0,127}" placeholder="ram_gb" spellcheck="false" />
+                  </label>
+                  <label>
+                    <span>Value type</span>
+                    <select name="value_type">
+                      <option value="string">string</option>
+                      <option value="integer">integer</option>
+                      <option value="boolean">boolean</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Value</span>
+                    <input name="value" type="text" required placeholder="32" />
+                  </label>
+                  <label>
+                    <span>Provenance</span>
+                    <select name="provenance">
+                      <option value="CLAIMED">CLAIMED</option>
+                      <option value="ATTESTED">ATTESTED</option>
+                    </select>
+                  </label>
+                  <button class="text-link merchant-create-quiet-action" type="button" data-remove-merchant-attribute>Remove</button>
+                </div>
+              </template>
+            </div>
+          </dialog>
+
           <label class="buyer-field" for="merchant-select">
             <span>Runtime merchant</span>
             <select id="merchant-select">

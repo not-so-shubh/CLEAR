@@ -33,6 +33,15 @@
   const requestMerchantProposal = document.querySelector("#request-merchant-proposal");
   const submitMerchantProposal = document.querySelector("#submit-merchant-proposal");
   const merchantActionStatus = document.querySelector("#merchant-action-status");
+  const toggleMerchantCreate = document.querySelector("#toggle-merchant-create");
+  const merchantCreateDialog = document.querySelector("#merchant-create-dialog");
+  const merchantCreateForm = document.querySelector("#merchant-create-form");
+  const merchantCreateStatus = document.querySelector("#merchant-create-status");
+  const merchantCreateDialogStatus = document.querySelector("#merchant-create-dialog-status");
+  const merchantCreateAttributeList = document.querySelector("#merchant-create-attribute-list");
+  const merchantAttributeTemplate = document.querySelector("#merchant-attribute-template");
+  const addMerchantAttribute = document.querySelector("#add-merchant-attribute");
+  const cancelMerchantCreate = document.querySelector("#cancel-merchant-create");
   const clearingMarketList = document.querySelector("#clearing-market-list");
   const refreshClearingMarkets = document.querySelector("#refresh-clearing-markets");
   const clearingSnapshot = document.querySelector("#clearing-snapshot");
@@ -60,6 +69,7 @@
   let currentMerchantMarketId = null;
   let currentMerchantInbox = null;
   let merchantRunning = false;
+  let merchantCreating = false;
   let merchantInboxRequest = 0;
   let currentClearingMarketId = null;
   let currentClearingState = null;
@@ -86,6 +96,30 @@
     const rupees = Math.floor(absolutePaise / 100).toLocaleString("en-IN");
     const remainder = String(absolutePaise % 100).padStart(2, "0");
     return `${paise < 0 ? "-" : ""}₹${rupees}.${remainder}`;
+  };
+
+  const parseRupeesToPaise = (value, label) => {
+    const match = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,2}))?$/.exec(value);
+    if (!match) {
+      throw new Error(`${label} must be rupees with at most two decimal places.`);
+    }
+    const fractionalPaise = `${match[2] || ""}00`.slice(0, 2);
+    const paise = BigInt(match[1]) * 100n + BigInt(fractionalPaise);
+    if (paise > 1000000000000n) {
+      throw new Error(`${label} is outside the accepted money range.`);
+    }
+    return Number(paise);
+  };
+
+  const parsePositiveQuantity = (value, label) => {
+    if (!/^[1-9][0-9]*$/.test(value)) {
+      throw new Error(`${label} must be a positive whole number.`);
+    }
+    const quantity = Number(value);
+    if (!Number.isSafeInteger(quantity) || quantity > 1000000) {
+      throw new Error(`${label} is outside the accepted quantity range.`);
+    }
+    return quantity;
   };
 
   const viewFromHash = () => {
@@ -276,8 +310,8 @@
     });
   };
 
-  const renderMerchantOptions = (merchants) => {
-    if (!(merchantSelect instanceof HTMLSelectElement)) return;
+  const renderMerchantOptions = (merchants, preferredMerchantId = null) => {
+    if (!(merchantSelect instanceof HTMLSelectElement)) return null;
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.textContent = "Select a merchant";
@@ -291,9 +325,12 @@
       });
     }
     merchantSelect.replaceChildren(...options);
-    let rememberedMerchantId = null;
+    let rememberedMerchantId = currentMerchantId;
     try {
-      rememberedMerchantId = window.localStorage.getItem("clear-product-merchant-id");
+      rememberedMerchantId =
+        preferredMerchantId ||
+        rememberedMerchantId ||
+        window.localStorage.getItem("clear-product-merchant-id");
     } catch (_error) {
       // The server-backed workspace remains available without browser storage.
     }
@@ -303,24 +340,220 @@
       merchants.some((merchant) => String(merchant.merchant_id) === rememberedMerchantId)
     ) {
       merchantSelect.value = rememberedMerchantId;
-      loadMerchantInbox(rememberedMerchantId);
+      currentMerchantId = rememberedMerchantId;
+      try {
+        window.localStorage.setItem("clear-product-merchant-id", rememberedMerchantId);
+      } catch (_error) {
+        // Selection remains usable without browser storage.
+      }
+      return rememberedMerchantId;
     }
+    currentMerchantId = null;
+    return null;
   };
 
-  const loadMerchants = async () => {
+  const loadMerchants = async (preferredMerchantId = null) => {
     try {
       const response = await requestJSON("/api/product-v1/merchants", { headers: {} });
       if (!response.ok || !Array.isArray(response.payload.merchants)) {
         throw new Error("Runtime merchant discovery failed closed.");
       }
       renderMerchants(response.payload.merchants);
-      renderMerchantOptions(response.payload.merchants);
+      const selectedMerchantId = renderMerchantOptions(
+        response.payload.merchants,
+        preferredMerchantId,
+      );
+      if (selectedMerchantId) await loadMerchantInbox(selectedMerchantId);
+      return true;
     } catch (error) {
       renderMerchants([]);
       renderMerchantOptions([]);
-      if (actionStatus) actionStatus.textContent = error.message;
-      if (merchantActionStatus) merchantActionStatus.textContent = error.message;
+      const errorMessage =
+        error instanceof Error ? error.message : "Runtime merchant discovery failed closed.";
+      if (actionStatus) actionStatus.textContent = errorMessage;
+      if (merchantActionStatus) merchantActionStatus.textContent = errorMessage;
+      return false;
     }
+  };
+
+  const setMerchantCreateStatus = (text, state = "idle") => {
+    if (!merchantCreateStatus) return;
+    merchantCreateStatus.textContent = text;
+    merchantCreateStatus.dataset.state = state;
+  };
+
+  const setMerchantDialogStatus = (text, state = "idle") => {
+    if (!merchantCreateDialogStatus) return;
+    merchantCreateDialogStatus.textContent = text;
+    merchantCreateDialogStatus.dataset.state = state;
+  };
+
+  const openMerchantCreateDialog = () => {
+    if (!(merchantCreateDialog instanceof HTMLDialogElement) || merchantCreateDialog.open) return;
+    merchantCreateDialog.showModal();
+    document.body.classList.add("merchant-dialog-open");
+    setMerchantDialogStatus(
+      "Complete the required fields. Optional catalog attributes may be added below.",
+    );
+    window.requestAnimationFrame(() => {
+      merchantCreateForm?.querySelector("input")?.focus();
+    });
+  };
+
+  const closeMerchantCreateDialog = (returnValue) => {
+    if (!(merchantCreateDialog instanceof HTMLDialogElement) || !merchantCreateDialog.open) return;
+    merchantCreateDialog.close(returnValue);
+  };
+
+  const setMerchantCreating = (value) => {
+    merchantCreating = value;
+    if (toggleMerchantCreate instanceof HTMLButtonElement) toggleMerchantCreate.disabled = value;
+    if (!(merchantCreateForm instanceof HTMLFormElement)) return;
+    merchantCreateForm.querySelectorAll("input, select, button").forEach((control) => {
+      control.disabled = value;
+    });
+  };
+
+  const updateAttributeButton = () => {
+    if (!(addMerchantAttribute instanceof HTMLButtonElement)) return;
+    const attributeCount = merchantCreateAttributeList?.querySelectorAll(
+      "[data-merchant-attribute-row]",
+    ).length;
+    addMerchantAttribute.disabled = merchantCreating || (attributeCount ?? 0) >= 64;
+  };
+
+  const appendMerchantAttribute = () => {
+    if (
+      !merchantCreateAttributeList ||
+      !(merchantAttributeTemplate instanceof HTMLTemplateElement)
+    ) {
+      return;
+    }
+    if (merchantCreateAttributeList.querySelectorAll("[data-merchant-attribute-row]").length >= 64) {
+      setMerchantDialogStatus("At most 64 catalog attributes are accepted.", "error");
+      return;
+    }
+    const row = merchantAttributeTemplate.content.firstElementChild?.cloneNode(true);
+    if (!(row instanceof HTMLElement)) return;
+    const remove = row.querySelector("[data-remove-merchant-attribute]");
+    remove?.addEventListener("click", () => {
+      row.remove();
+      updateAttributeButton();
+    });
+    merchantCreateAttributeList.append(row);
+    updateAttributeButton();
+  };
+
+  const requiredMerchantText = (formData, field, label, maximum) => {
+    const rawValue = formData.get(field);
+    if (typeof rawValue !== "string") throw new Error(`${label} is required.`);
+    const value = rawValue.trim();
+    if (!value || value.length > maximum || value.includes("\u0000")) {
+      throw new Error(`${label} is outside its accepted text range.`);
+    }
+    return value;
+  };
+
+  const attributeInteger = (value, label) => {
+    if (!/^-?(0|[1-9][0-9]*)$/.test(value)) {
+      throw new Error(`${label} must be a whole number.`);
+    }
+    const integer = BigInt(value);
+    if (
+      integer < BigInt(Number.MIN_SAFE_INTEGER) ||
+      integer > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      throw new Error(`${label} is outside the browser's exact integer range.`);
+    }
+    return Number(integer);
+  };
+
+  const merchantAttributesFromForm = () => {
+    if (!merchantCreateAttributeList) return [];
+    const rows = [...merchantCreateAttributeList.querySelectorAll("[data-merchant-attribute-row]")];
+    const keys = new Set();
+    return rows.map((row, index) => {
+      const fieldValue = (name) => {
+        const field = row.querySelector(`[name="${name}"]`);
+        if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement)) {
+          throw new Error(`Attribute ${index + 1} is incomplete.`);
+        }
+        return field.value;
+      };
+      const attributeKey = fieldValue("attribute_key");
+      if (!/^[a-z][a-z0-9_.-]{0,127}$/.test(attributeKey)) {
+        throw new Error(`Attribute ${index + 1} needs a canonical lowercase key.`);
+      }
+      if (keys.has(attributeKey)) {
+        throw new Error(`Attribute key ${attributeKey} is duplicated.`);
+      }
+      keys.add(attributeKey);
+      const valueType = fieldValue("value_type");
+      const rawValue = fieldValue("value");
+      let value;
+      if (valueType === "string") {
+        value = rawValue;
+      } else if (valueType === "integer") {
+        value = attributeInteger(rawValue, `Attribute ${index + 1} value`);
+      } else if (valueType === "boolean" && ["true", "false"].includes(rawValue)) {
+        value = rawValue === "true";
+      } else {
+        throw new Error(`Attribute ${index + 1} value must match its declared type.`);
+      }
+      const provenance = fieldValue("provenance");
+      if (!["CLAIMED", "ATTESTED"].includes(provenance)) {
+        throw new Error(`Attribute ${index + 1} has unsupported provenance.`);
+      }
+      return {
+        attribute_key: attributeKey,
+        value_type: valueType,
+        value,
+        provenance,
+      };
+    });
+  };
+
+  const merchantCreationRequest = () => {
+    if (!(merchantCreateForm instanceof HTMLFormElement)) {
+      throw new Error("Merchant creation form is unavailable.");
+    }
+    const formData = new FormData(merchantCreateForm);
+    const merchantSku = requiredMerchantText(formData, "merchant_sku", "Merchant SKU", 128);
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(merchantSku)) {
+      throw new Error("Merchant SKU uses unsupported characters.");
+    }
+    const unitCostBasisPaise = parseRupeesToPaise(
+      String(formData.get("unit_cost_basis_paise") ?? ""),
+      "Unit cost basis",
+    );
+    const minimumMarginPaise = parseRupeesToPaise(
+      String(formData.get("minimum_margin_paise") ?? ""),
+      "Minimum margin",
+    );
+    if (unitCostBasisPaise + minimumMarginPaise > 1000000000000) {
+      throw new Error("Unit cost plus minimum margin is outside the accepted money range.");
+    }
+    return {
+      display_name: requiredMerchantText(formData, "display_name", "Merchant name", 256),
+      product_display_name: requiredMerchantText(
+        formData,
+        "product_display_name",
+        "Product name",
+        256,
+      ),
+      merchant_sku: merchantSku,
+      inventory_quantity: parsePositiveQuantity(
+        String(formData.get("inventory_quantity") ?? ""),
+        "Inventory quantity",
+      ),
+      unit_cost_basis_paise: unitCostBasisPaise,
+      minimum_margin_paise: minimumMarginPaise,
+      max_quantity_per_offer: parsePositiveQuantity(
+        String(formData.get("max_quantity_per_offer") ?? ""),
+        "Maximum quantity per offer",
+      ),
+      attributes: merchantAttributesFromForm(),
+    };
   };
 
   const clearInterpretation = () => {
@@ -780,6 +1013,101 @@
       merchantActionStatus.textContent = `${code} · No browser authority was inferred.`;
     }
   };
+
+  if (
+    toggleMerchantCreate instanceof HTMLButtonElement &&
+    merchantCreateDialog instanceof HTMLDialogElement
+  ) {
+    toggleMerchantCreate.addEventListener("click", () => {
+      openMerchantCreateDialog();
+    });
+  }
+
+  if (merchantCreateDialog instanceof HTMLDialogElement) {
+    merchantCreateDialog.addEventListener("cancel", (event) => {
+      if (merchantCreating) {
+        event.preventDefault();
+        return;
+      }
+      setMerchantCreateStatus("Merchant creation cancelled. Runtime state was not changed.");
+    });
+    merchantCreateDialog.addEventListener("close", () => {
+      document.body.classList.remove("merchant-dialog-open");
+      window.requestAnimationFrame(() => {
+        if (toggleMerchantCreate instanceof HTMLButtonElement && !toggleMerchantCreate.disabled) {
+          toggleMerchantCreate.focus();
+        }
+      });
+    });
+  }
+
+  if (cancelMerchantCreate instanceof HTMLButtonElement) {
+    cancelMerchantCreate.addEventListener("click", () => {
+      if (merchantCreating) return;
+      closeMerchantCreateDialog("cancel");
+      setMerchantCreateStatus("Merchant creation cancelled. Runtime state was not changed.");
+    });
+  }
+
+  if (addMerchantAttribute instanceof HTMLButtonElement) {
+    addMerchantAttribute.addEventListener("click", appendMerchantAttribute);
+  }
+
+  const submitNewMerchant = async (event) => {
+    event.preventDefault();
+    if (merchantCreating) return;
+    let request;
+    try {
+      request = merchantCreationRequest();
+    } catch (error) {
+      setMerchantDialogStatus(
+        error instanceof Error ? error.message : "Merchant creation failed closed.",
+        "error",
+      );
+      return;
+    }
+    setMerchantCreating(true);
+    setMerchantDialogStatus("CREATING · SERVER-OWNED IDENTITY · NO PROVIDER CALL", "running");
+    try {
+      const response = await requestJSON("/api/product-v1/merchants", {
+        method: "POST",
+        body: JSON.stringify(request),
+      });
+      const createdMerchantId = response.payload?.merchant_id;
+      if (!response.ok || typeof createdMerchantId !== "string") {
+        const error = response.payload?.error;
+        const code = String(error?.code || "MERCHANT_CREATION_REJECTED");
+        throw new Error(`${code} · Check the merchant fields and try again.`);
+      }
+      const refreshed = await loadMerchants(createdMerchantId);
+      if (!refreshed) {
+        setMerchantDialogStatus(
+          "Merchant created, but the runtime list could not be refreshed. Reload before retrying.",
+          "error",
+        );
+        return;
+      }
+      merchantCreateForm.reset();
+      merchantCreateAttributeList?.replaceChildren();
+      closeMerchantCreateDialog("created");
+      setMerchantCreateStatus(
+        "Merchant created and selected. No AI, offer, market close, or payment action ran.",
+        "success",
+      );
+    } catch (error) {
+      setMerchantDialogStatus(
+        error instanceof Error ? error.message : "Merchant creation failed closed.",
+        "error",
+      );
+    } finally {
+      setMerchantCreating(false);
+      updateAttributeButton();
+    }
+  };
+
+  if (merchantCreateForm instanceof HTMLFormElement) {
+    merchantCreateForm.addEventListener("submit", submitNewMerchant);
+  }
 
   if (merchantSelect instanceof HTMLSelectElement) {
     merchantSelect.addEventListener("change", () => {

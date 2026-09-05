@@ -336,6 +336,207 @@ body[data-view="merchant"] .site-header {
   font-size: 15px;
 }
 
+.merchant-create-panel {
+  margin-bottom: 40px;
+  padding-bottom: 40px;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-create-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.merchant-create-heading .micro-label {
+  margin-bottom: 8px;
+}
+
+.merchant-create-heading h2 {
+  font-size: clamp(28px, 3vw, 42px);
+}
+
+#toggle-merchant-create {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 23px;
+  text-align: center;
+}
+
+.merchant-create-panel > .action-note {
+  margin: 18px 0 0;
+}
+
+.merchant-create-panel > .action-note[data-state="error"] {
+  color: #8a2d20;
+}
+
+.merchant-create-panel > .action-note[data-state="success"] {
+  color: var(--green);
+}
+
+.merchant-create-dialog {
+  width: min(980px, calc(100vw - 48px));
+  max-width: none;
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--text);
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 28px 80px rgb(24 25 22 / 28%);
+}
+
+.merchant-create-dialog::backdrop {
+  background: rgb(24 25 22 / 54%);
+  backdrop-filter: blur(3px);
+}
+
+body.merchant-dialog-open {
+  overflow: hidden;
+}
+
+.merchant-create-dialog-frame {
+  padding: clamp(26px, 4vw, 48px);
+}
+
+.merchant-create-dialog-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr);
+  gap: 42px;
+  align-items: end;
+  padding-bottom: 27px;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-create-dialog-head .micro-label {
+  margin-bottom: 8px;
+}
+
+.merchant-create-dialog-head h2 {
+  font-size: clamp(38px, 5vw, 62px);
+}
+
+.merchant-create-dialog-head > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.merchant-create-dialog-status {
+  max-width: none;
+  margin-top: 20px;
+}
+
+.merchant-create-dialog-status[data-state="error"] {
+  color: #8a2d20;
+}
+
+.merchant-create-form {
+  margin-top: 27px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.merchant-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 18px;
+}
+
+.merchant-create-grid .buyer-field {
+  margin-bottom: 0;
+}
+
+.merchant-create-attributes {
+  margin: 30px 0 0;
+  padding: 26px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.merchant-create-attributes legend {
+  padding: 0;
+  font-size: 15px;
+  font-weight: 560;
+}
+
+.merchant-create-attributes legend span {
+  margin-left: 7px;
+  color: var(--muted);
+  font: 10px/1.5 var(--mono);
+  text-transform: uppercase;
+}
+
+#merchant-create-attribute-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.merchant-create-attribute {
+  display: grid;
+  grid-template-columns: 1.2fr .8fr 1fr .9fr auto;
+  gap: 9px;
+  align-items: end;
+  padding: 15px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.merchant-create-attribute label > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font: 10px/1.4 var(--mono);
+  text-transform: uppercase;
+}
+
+.merchant-create-attribute input,
+.merchant-create-attribute select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 11px;
+  background: #fff;
+  color: var(--text);
+  font: 13px/1.4 var(--sans);
+}
+
+.merchant-create-attribute input:focus,
+.merchant-create-attribute select:focus {
+  border-color: var(--text);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.merchant-create-actions {
+  display: flex;
+  gap: 17px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 29px;
+}
+
+.merchant-create-quiet-action {
+  min-height: 42px;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  padding: 9px 0 6px;
+  background: transparent;
+  color: var(--text);
+  font: 13px/1.4 var(--sans);
+}
+
+.merchant-create-quiet-action:hover:not(:disabled) {
+  color: var(--green);
+}
+
 .merchant-work-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(280px, .4fr);
@@ -1841,12 +2042,18 @@ body[data-view="clearing"] .site-header {
   .buyer-result-head,
   .buyer-provider-line,
   .buyer-freeze-row,
+  .merchant-create-heading,
   .merchant-review-head,
   .merchant-proposal-head,
   .clearing-discovery-head,
   .clearing-snapshot-head,
   .clearing-offer-head {
     flex-direction: column;
+  }
+
+  .merchant-create-dialog-head {
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
 
   .buyer-validation-state {
@@ -1873,8 +2080,17 @@ body[data-view="clearing"] .site-header {
   }
 
   .merchant-attribute-list,
+  .merchant-create-grid,
   .merchant-proposal-lines dl {
     grid-template-columns: 1fr;
+  }
+
+  .merchant-create-attribute {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .merchant-create-attribute > .text-link {
+    justify-self: start;
   }
 
   .merchant-attribute-list > div + div,
@@ -1890,6 +2106,28 @@ body[data-view="clearing"] .site-header {
 
   .merchant-proposal {
     margin-inline: 18px;
+  }
+
+  .merchant-create-dialog {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border: 0;
+  }
+
+  .merchant-create-dialog-frame {
+    min-height: 100%;
+    padding: 28px 22px;
+  }
+
+  .merchant-create-actions {
+    position: sticky;
+    bottom: -28px;
+    margin-inline: -22px;
+    padding: 18px 22px 28px;
+    border-top: 1px solid var(--line);
+    background: #fff;
   }
 
   .clearing-market-list,
@@ -1958,6 +2196,10 @@ body[data-view="clearing"] .site-header {
   }
 
   .merchant-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .merchant-create-attribute {
     grid-template-columns: 1fr;
   }
 

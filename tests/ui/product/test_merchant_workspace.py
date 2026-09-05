@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -886,8 +887,8 @@ def test_merchant_workspace_client_restores_from_get_and_mutates_only_on_explici
     assert "allocated_quantity" not in client_without_authority_renderer
     assert "certificate_id" not in client_without_authority_renderer
     assert "payment_status" not in client
-    assert "unit_cost_basis_paise" not in client
-    assert "minimum_margin_paise" not in client
+    assert "signing_private_key_hex" not in client
+    assert "signing_private_key_hex" not in markup
     assert (
         re.search(
             r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -901,3 +902,169 @@ def test_merchant_workspace_client_restores_from_get_and_mutates_only_on_explici
     assert 'field === "proposed_unit_price_paise"' in client
     assert '["PROPOSED UNIT PRICE", "proposed_unit_price_paise"]' in client
     assert '["UNIT PRICE", "proposed_unit_price_paise"]' in client
+
+
+def test_merchant_creation_ui_uses_only_the_existing_authoritative_endpoint() -> None:
+    markup = Path("ui/index.html").read_text(encoding="utf-8")
+    client = Path("ui/product_app.js").read_text(encoding="utf-8")
+    styles = Path("ui/product.css").read_text(encoding="utf-8")
+    create_request_block = client.split("const merchantCreationRequest =", 1)[1].split(
+        "const clearInterpretation =", 1
+    )[0]
+    attribute_block = client.split("const merchantAttributesFromForm =", 1)[1].split(
+        "const merchantCreationRequest =", 1
+    )[0]
+    create_action_block = client.split("const submitNewMerchant =", 1)[1].split(
+        "if (merchantCreateForm instanceof HTMLFormElement)", 1
+    )[0]
+    open_block = client.split('toggleMerchantCreate.addEventListener("click"', 1)[1].split(
+        'merchantCreateDialog.addEventListener("cancel"', 1
+    )[0]
+    native_cancel_block = client.split('merchantCreateDialog.addEventListener("cancel"', 1)[
+        1
+    ].split('merchantCreateDialog.addEventListener("close"', 1)[0]
+    cancel_button_block = client.split('cancelMerchantCreate.addEventListener("click"', 1)[1].split(
+        "if (addMerchantAttribute instanceof HTMLButtonElement)", 1
+    )[0]
+    merchant_refresh_block = client.split("const renderMerchantOptions =", 1)[1].split(
+        "const clearInterpretation =", 1
+    )[0]
+
+    assert 'id="toggle-merchant-create"' in markup
+    assert 'id="merchant-create-form"' in markup
+    assert 'id="merchant-create-dialog"' in markup
+    assert '<dialog class="merchant-create-dialog"' in markup
+    dialog_tag = markup.split('<dialog class="merchant-create-dialog"', 1)[1].split(">", 1)[0]
+    assert " open" not in dialog_tag
+    assert 'aria-labelledby="merchant-create-title"' in dialog_tag
+    assert 'aria-describedby="merchant-create-description"' in dialog_tag
+    assert 'id="merchant-create-dialog-status"' in markup
+    assert 'id="create-merchant"' in markup
+    assert 'id="merchant-attribute-template"' in markup
+    assert 'data-view-target="merchant"' in markup
+    assert markup.count("data-view-target=") == 3
+    assert 'data-app-view="evidence"' not in markup
+    assert "merchant-create-quiet-action" in markup
+    assert ".merchant-create-quiet-action {" in styles
+    assert ".merchant-create-dialog::backdrop" in styles
+    assert "body.merchant-dialog-open" in styles
+    assert "max-height: 100dvh" in styles
+
+    request_fields = {
+        "display_name",
+        "product_display_name",
+        "merchant_sku",
+        "inventory_quantity",
+        "unit_cost_basis_paise",
+        "minimum_margin_paise",
+        "max_quantity_per_offer",
+        "attributes",
+    }
+    for field in request_fields:
+        assert f"{field}:" in create_request_block
+    for attribute_field in ("attribute_key", "value_type", "value", "provenance"):
+        assert f'fieldValue("{attribute_field}")' in attribute_block
+
+    assert 'requestJSON("/api/product-v1/merchants"' in create_action_block
+    assert 'method: "POST"' in create_action_block
+    assert "body: JSON.stringify(request)" in create_action_block
+    assert create_action_block.index("request = merchantCreationRequest()") < (
+        create_action_block.index("setMerchantCreating(true)")
+    )
+    assert "await loadMerchants(createdMerchantId)" in create_action_block
+    assert create_action_block.index("await loadMerchants(createdMerchantId)") < (
+        create_action_block.index("merchantCreateForm.reset()")
+    )
+    assert create_action_block.index("merchantCreateForm.reset()") < (
+        create_action_block.index('closeMerchantCreateDialog("created")')
+    )
+    assert "merchantSelect.value = rememberedMerchantId" in merchant_refresh_block
+    assert "currentMerchantId = rememberedMerchantId" in merchant_refresh_block
+    assert "await loadMerchantInbox(selectedMerchantId)" in merchant_refresh_block
+
+    assert 'setMerchantDialogStatus("CREATING · SERVER-OWNED IDENTITY · NO PROVIDER CALL"' in (
+        create_action_block
+    )
+    assert "Merchant creation failed closed." in create_action_block
+    assert "setMerchantCreateStatus(" in create_action_block
+    assert "currentMerchantId =" not in create_action_block
+    validation_failure_block = create_action_block.split("setMerchantCreating(true)", 1)[0]
+    server_failure_block = create_action_block.rsplit("} catch (error) {", 1)[1].split(
+        "} finally", 1
+    )[0]
+    assert "setMerchantDialogStatus(" in validation_failure_block
+    assert "closeMerchantCreateDialog" not in validation_failure_block
+    assert "setMerchantDialogStatus(" in server_failure_block
+    assert "closeMerchantCreateDialog" not in server_failure_block
+
+    assert "openMerchantCreateDialog()" in open_block
+    assert "requestJSON(" not in open_block
+    assert "merchantCreateDialog.showModal()" in client
+    assert "merchantCreateDialog.close(returnValue)" in client
+    assert "event.preventDefault()" in native_cancel_block
+    assert "requestJSON(" not in native_cancel_block
+    assert 'closeMerchantCreateDialog("cancel")' in cancel_button_block
+    assert "requestJSON(" not in cancel_button_block
+    assert "toggleMerchantCreate.focus()" in client
+    for forbidden_action in (
+        "/propose",
+        "/submit-proposal",
+        "/close",
+        "/authorize",
+        "/razorpay",
+        "requestMerchantProposal.click",
+        "submitMerchantProposal.click",
+    ):
+        assert forbidden_action not in create_action_block
+
+    assert "BigInt(match[1]) * 100n + BigInt(fractionalPaise)" in client
+    assert "paise > 1000000000000n" in client
+    assert "parseFloat" not in client
+    assert "Math.round" not in client
+    assert "^[a-z][a-z0-9_.-]{0,127}$" in client
+    assert '["CLAIMED", "ATTESTED"]' in client
+    assert "signing_private_key" not in client
+    assert "signing_private_key" not in markup
+
+
+def test_merchant_rupee_input_executes_as_exact_integer_paise() -> None:
+    client = Path("ui/product_app.js").read_text(encoding="utf-8")
+    parser_source = client[
+        client.index("const parseRupeesToPaise =") : client.index("const parsePositiveQuantity =")
+    ]
+    exercise = r"""
+const valid = Object.fromEntries(
+  ["0", "1", "1.2", "1.23", "10000000000"].map((value) => [
+    value,
+    parseRupeesToPaise(value, "Money"),
+  ]),
+);
+const invalid = ["", ".5", "1.", "1.234", "-1", "1e2", "1,000", "10000000000.01", " 1", "1 "];
+const rejected = invalid.map((value) => {
+  try {
+    parseRupeesToPaise(value, "Money");
+    return false;
+  } catch (_error) {
+    return true;
+  }
+});
+process.stdout.write(JSON.stringify({ valid, rejected }));
+"""
+
+    result = subprocess.run(
+        ["node", "-e", parser_source + exercise],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "valid": {
+            "0": 0,
+            "1": 100,
+            "1.2": 120,
+            "1.23": 123,
+            "10000000000": 1_000_000_000_000,
+        },
+        "rejected": [True] * 10,
+    }
