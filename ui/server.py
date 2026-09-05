@@ -39,6 +39,7 @@ UI_ROOT = Path(__file__).resolve().parent
 _LIVE_EVIDENCE_LOCK = Lock()
 _LIVE_AI_EVIDENCE_LOCK = Lock()
 _PRODUCT_MARKET_PATH = re.compile(r"/api/product-v1/markets/([^/]+)")
+_PRODUCT_CLEARING_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/clearing")
 _PRODUCT_OFFER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/offers")
 _PRODUCT_CLOSE_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/close")
 _PRODUCT_DRAFT_INTERPRET_PATH = re.compile(r"/api/product-v1/buyer-drafts/([^/]+)/interpret")
@@ -329,6 +330,22 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         requested = urlparse(self.path).path
         if requested.startswith("/api/product-v1/"):
+            if requested == "/api/product-v1/markets":
+                try:
+                    self._send_json(ProductService().list_markets())
+                except ProductServiceError as error:
+                    self._send_product_error(error)
+                except Exception:
+                    self._send_json(
+                        {
+                            "error": {
+                                "code": "PRODUCT_INTERNAL_FAILURE",
+                                "message": "Product request failed closed.",
+                            }
+                        },
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                return
             if requested == "/api/product-v1/merchants":
                 try:
                     self._send_json(ProductService().list_merchants())
@@ -351,6 +368,26 @@ class _Handler(BaseHTTPRequestHandler):
                     payload = ProductService().list_merchant_markets(
                         merchant_markets_match.group(1)
                     )
+                except ProductServiceError as error:
+                    self._send_product_error(error)
+                    return
+                except Exception:
+                    self._send_json(
+                        {
+                            "error": {
+                                "code": "PRODUCT_INTERNAL_FAILURE",
+                                "message": "Product request failed closed.",
+                            }
+                        },
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    return
+                self._send_json(payload)
+                return
+            clearing_match = _PRODUCT_CLEARING_PATH.fullmatch(requested)
+            if clearing_match is not None:
+                try:
+                    payload = ProductService().get_clearing_snapshot(clearing_match.group(1))
                 except ProductServiceError as error:
                     self._send_product_error(error)
                     return

@@ -65,6 +65,7 @@ from clear_market.commerce import (
     MerchantSkuEconomicRuleV2,
     ProvenanceLabel,
     SignedMerchantOfferParseError,
+    SignedMerchantOfferV2,
     build_and_sign_merchant_offer_v2,
     buyer_policy_v2_commitment,
     canonical_buyer_policy_v2_bytes,
@@ -186,6 +187,13 @@ def _parse_timestamp(value: str) -> datetime:
     if canonical_utc_datetime(parsed) != value:
         raise ProductServiceError(ProductErrorCode.INVALID_REQUEST)
     return parsed
+
+
+def _parse_persisted_timestamp(value: str) -> datetime:
+    try:
+        return _parse_timestamp(value)
+    except ProductServiceError as error:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
 
 
 def _utc_now() -> datetime:
@@ -703,7 +711,7 @@ class ProductService:
         *,
         authority: _MerchantAuthority,
         policy: BuyerPolicyV2,
-    ) -> object:
+    ) -> SignedMerchantOfferV2:
         try:
             authenticated = verify_canonical_signed_merchant_offer_v2(
                 data=record.canonical_signed_offer,
@@ -1577,6 +1585,221 @@ class ProductService:
             self.store.insert_market(connection, record)
         return self._market_presentation(record, None, policy)
 
+    @staticmethod
+    def _validate_market_lifecycle(market: MarketRecord) -> None:
+        _parse_persisted_timestamp(market.created_at)
+        _parse_persisted_timestamp(market.offer_deadline)
+        if market.state == "OPEN":
+            if market.closed_at is not None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            return
+        if market.state != "CLOSED" or market.closed_at is None:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        _parse_persisted_timestamp(market.closed_at)
+
+    @classmethod
+    def _clearing_market_presentation(
+        cls,
+        market: MarketRecord,
+        policy: BuyerPolicyV2,
+    ) -> dict[str, object]:
+        hard, soft = cls._rules_presentation(policy)
+        return {
+            "market_id": market.market_id,
+            "state": market.state,
+            "requested_quantity": policy.market_spec.requested_quantity,
+            "minimum_acceptable_quantity": policy.market_spec.minimum_acceptable_quantity,
+            "max_winners": policy.market_spec.max_winners,
+            "max_total_payment_paise": policy.max_total_payment.amount_paise,
+            "offer_deadline": canonical_utc_datetime(policy.offer_deadline),
+            "hard_constraints": hard,
+            "soft_preferences": soft,
+        }
+
+    def list_markets(self) -> dict[str, object]:
+        with self.store.connection() as connection:
+            try:
+                records = self.store.list_markets(connection)
+            except (TypeError, ValueError) as error:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+            markets = []
+            for market in records:
+                self._validate_market_lifecycle(market)
+                policy = self._load_policy(market)
+                markets.append(
+                    {
+                        "market_id": market.market_id,
+                        "state": market.state,
+                        "requested_quantity": policy.market_spec.requested_quantity,
+                        "minimum_acceptable_quantity": (
+                            policy.market_spec.minimum_acceptable_quantity
+                        ),
+                        "max_winners": policy.market_spec.max_winners,
+                        "max_total_payment_paise": policy.max_total_payment.amount_paise,
+                        "offer_deadline": canonical_utc_datetime(policy.offer_deadline),
+                        "submitted_offer_count": self.store.count_offers(
+                            connection, market.market_id
+                        ),
+                        "created_at": market.created_at,
+                        "closed_at": market.closed_at,
+                    }
+                )
+        return {"markets": markets}
+
+    def _authenticated_clearing_offers(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        market: MarketRecord,
+        policy: BuyerPolicyV2,
+    ) -> tuple[
+        list[dict[str, object]],
+        tuple[MerchantOfferEvidenceV2, ...],
+        dict[str, SignedMerchantOfferV2],
+        dict[str, _MerchantAuthority],
+    ]:
+        presentations: list[dict[str, object]] = []
+        evidence: list[MerchantOfferEvidenceV2] = []
+        authenticated_by_offer: dict[str, SignedMerchantOfferV2] = {}
+        authorities_by_merchant: dict[str, _MerchantAuthority] = {}
+        for record in self.store.list_offers(connection, market.market_id):
+            merchant = self.store.get_merchant(connection, record.merchant_id)
+            if merchant is None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            authority = self._merchant_authority(merchant)
+            authenticated = self._authenticate_offer_record(
+                record,
+                authority=authority,
+                policy=policy,
+            )
+            received_at = _parse_persisted_timestamp(record.received_at)
+            if received_at > policy.offer_deadline:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            line = authenticated.offer.lines[0]
+            sku = next(
+                (value for value in authority.catalog.skus if value.sku_id == line.sku_id),
+                None,
+            )
+            if sku is None or authenticated.offer.offer_id in authenticated_by_offer:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            authenticated_by_offer[authenticated.offer.offer_id] = authenticated
+            authorities_by_merchant[record.merchant_id] = authority
+            presentations.append(
+                {
+                    "offer_id": authenticated.offer.offer_id,
+                    "merchant_id": record.merchant_id,
+                    "display_name": merchant.display_name,
+                    "sku_id": line.sku_id,
+                    "merchant_sku": sku.merchant_sku,
+                    "product_display_name": sku.display_name,
+                    "submitted_quantity": line.max_offer_quantity,
+                    "unit_price_paise": line.unit_price.amount_paise,
+                    "received_at": record.received_at,
+                    "signed": True,
+                    "authenticated": True,
+                    "submitted": True,
+                }
+            )
+            evidence.append(
+                MerchantOfferEvidenceV2(
+                    received_at=received_at,
+                    admission_decision=MerchantOfferAdmissionDecisionV2.ADMITTED,
+                    signing_identity=authority.identity,
+                    catalog=authority.catalog,
+                    inventory=authority.inventory,
+                    signed_offer=authenticated,
+                )
+            )
+        return (
+            presentations,
+            tuple(evidence),
+            authenticated_by_offer,
+            authorities_by_merchant,
+        )
+
+    def get_clearing_snapshot(self, market_id: str) -> dict[str, object]:
+        market_id = _parse_uuid(market_id)
+        with self.store.connection() as connection:
+            try:
+                market = self.store.get_market(connection, market_id)
+            except (TypeError, ValueError) as error:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+            if market is None:
+                raise ProductServiceError(ProductErrorCode.NOT_FOUND)
+            self._validate_market_lifecycle(market)
+            policy = self._load_policy(market)
+            (
+                submitted_offers,
+                expected_evidence,
+                authenticated_by_offer,
+                authorities_by_merchant,
+            ) = self._authenticated_clearing_offers(
+                connection,
+                market=market,
+                policy=policy,
+            )
+            try:
+                result = self.store.get_result(connection, market_id)
+            except (TypeError, ValueError) as error:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+            if market.state == "OPEN":
+                if result is not None:
+                    raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+                return {
+                    "market": self._clearing_market_presentation(market, policy),
+                    "submitted_offers": submitted_offers,
+                    "result": None,
+                }
+            if result is None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            certificate = self._validated_persisted_certificate(
+                connection,
+                market=market,
+                policy=policy,
+                result=result,
+            )
+            if certificate.merchant_offer_evidence != expected_evidence:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+
+            winners = []
+            seen_merchants: set[str] = set()
+            for allocation_line in certificate.allocation.lines:
+                authenticated = authenticated_by_offer.get(allocation_line.offer_id)
+                authority = authorities_by_merchant.get(allocation_line.merchant_id)
+                if authenticated is None or authority is None:
+                    raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+                signed_line = authenticated.offer.lines[0]
+                if (
+                    allocation_line.merchant_id in seen_merchants
+                    or authenticated.offer.merchant_id != allocation_line.merchant_id
+                    or signed_line.sku_id != allocation_line.sku_id
+                    or signed_line.unit_price != allocation_line.unit_payment
+                    or allocation_line.allocated_quantity > signed_line.max_offer_quantity
+                    or authority.record.sku_id != allocation_line.sku_id
+                ):
+                    raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+                seen_merchants.add(allocation_line.merchant_id)
+                winners.append(
+                    {
+                        "merchant_id": allocation_line.merchant_id,
+                        "display_name": authority.record.display_name,
+                    }
+                )
+            if tuple(value["merchant_id"] for value in winners) != result.winner_merchant_ids:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            return {
+                "market": self._clearing_market_presentation(market, policy),
+                "submitted_offers": submitted_offers,
+                "result": {
+                    "allocation_status": result.allocation_status,
+                    "requested_quantity": result.requested_quantity,
+                    "fulfilled_quantity": result.fulfilled_quantity,
+                    "winner_count": result.winner_count,
+                    "total_payment_paise": result.total_payment_paise,
+                    "winners": winners,
+                },
+            }
+
     def submit_offer(
         self,
         market_id: str,
@@ -1782,6 +2005,39 @@ class ProductService:
                 raise ProductServiceError(ProductErrorCode.MARKET_NOT_OPEN) from error
         return self._market_presentation(closed_market, result, buyer_policy)
 
+    def _validated_persisted_certificate(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        market: MarketRecord,
+        policy: BuyerPolicyV2,
+        result: ResultRecord,
+    ) -> AllocationCertificateV2:
+        try:
+            certificate = parse_canonical_allocation_certificate_v2(result.canonical_certificate)
+        except ValueError as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        if allocation_certificate_v2_digest(
+            certificate
+        ) != result.certificate_digest or canonical_buyer_policy_v2_bytes(
+            certificate.buyer_policy
+        ) != canonical_buyer_policy_v2_bytes(policy):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        self._validate_result_against_certificate(result, certificate)
+        trusted_identities = []
+        for merchant_id in market.eligible_merchant_ids:
+            merchant = self.store.get_merchant(connection, merchant_id)
+            if merchant is None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            trusted_identities.append(self._merchant_authority(merchant).identity)
+        verification = verify_allocation_certificate_v2(
+            certificate,
+            trusted_signing_identities=tuple(trusted_identities),
+        )
+        if not verification.verified or not result.certificate_verified:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        return certificate
+
     def get_market(self, market_id: str) -> dict[str, object]:
         market_id = _parse_uuid(market_id)
         with self.store.connection() as connection:
@@ -1791,27 +2047,12 @@ class ProductService:
             policy = self._load_policy(market)
             result = self.store.get_result(connection, market_id)
             if result is not None:
-                try:
-                    certificate = parse_canonical_allocation_certificate_v2(
-                        result.canonical_certificate
-                    )
-                except ValueError as error:
-                    raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
-                if allocation_certificate_v2_digest(certificate) != result.certificate_digest:
-                    raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
-                self._validate_result_against_certificate(result, certificate)
-                trusted_identities = []
-                for merchant_id in market.eligible_merchant_ids:
-                    merchant = self.store.get_merchant(connection, merchant_id)
-                    if merchant is None:
-                        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
-                    trusted_identities.append(self._merchant_authority(merchant).identity)
-                verification = verify_allocation_certificate_v2(
-                    certificate,
-                    trusted_signing_identities=tuple(trusted_identities),
+                self._validated_persisted_certificate(
+                    connection,
+                    market=market,
+                    policy=policy,
+                    result=result,
                 )
-                if not verification.verified or not result.certificate_verified:
-                    raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
             return self._market_presentation(market, result, policy)
 
     @staticmethod

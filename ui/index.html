@@ -17,6 +17,7 @@
       <div class="app-switch" role="group" aria-label="Application view">
         <button type="button" data-view-target="buyer" aria-pressed="true">Buyer</button>
         <button type="button" data-view-target="merchant" aria-pressed="false">Merchant</button>
+        <button type="button" data-view-target="clearing" aria-pressed="false">Clearing</button>
         <button type="button" data-view-target="evidence" aria-pressed="false">Evidence</button>
       </div>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">Menu <span aria-hidden="true">+</span></button>
@@ -230,6 +231,102 @@
           </div>
           <p class="action-note" id="merchant-action-status" role="status" aria-live="polite">Select an eligible open market. No AI call has occurred.</p>
         </div>
+      </section>
+    </main>
+
+    <main class="clearing-shell" id="clearing-workspace" data-app-view="clearing" hidden>
+      <section class="clearing-intro" aria-labelledby="clearing-workspace-title">
+        <div>
+          <p class="kicker">CLEAR · MARKET CLEARING</p>
+          <h1 id="clearing-workspace-title">Close the market.<br /><em>Let the rules decide.</em></h1>
+        </div>
+        <div class="clearing-intro-copy">
+          <p>Inspect the frozen policy and authenticated submissions, then explicitly close the market into the deterministic production allocator.</p>
+          <p class="buyer-boundary-copy">Market clearing invokes zero AI. The browser sends no commercial authority.</p>
+        </div>
+      </section>
+
+      <section class="clearing-work-grid" aria-label="Runtime market clearing workspace">
+        <div class="clearing-control-column">
+          <div class="clearing-discovery-head">
+            <div class="buyer-section-heading">
+              <span class="buyer-step">01 /</span>
+              <div><p class="micro-label">SERVER-AUTHORITATIVE</p><h2>Frozen buyer policy</h2></div>
+            </div>
+            <button class="text-link clearing-refresh" id="refresh-clearing-markets" type="button">Refresh markets</button>
+          </div>
+          <div id="clearing-market-list" class="clearing-market-list" aria-live="polite">
+            <p class="muted">Loading persisted runtime markets…</p>
+          </div>
+          <p class="action-note" id="clearing-action-status" role="status" aria-live="polite">Loading server authority. No browser outcome is inferred.</p>
+
+          <section class="clearing-snapshot" id="clearing-snapshot" aria-live="polite" hidden>
+            <div class="clearing-snapshot-head">
+              <div><p class="micro-label">RUNTIME MARKET</p><h2 data-clearing-field="market-id">—</h2></div>
+              <span class="clearing-market-state" data-clearing-field="market-state">—</span>
+            </div>
+            <div class="buyer-policy-metrics clearing-policy-metrics">
+              <div><span>QUANTITY</span><strong data-clearing-field="requested-quantity">—</strong></div>
+              <div><span>MINIMUM ACCEPTABLE</span><strong data-clearing-field="minimum-quantity">—</strong></div>
+              <div><span>MAXIMUM SUPPLIERS</span><strong data-clearing-field="max-suppliers">—</strong></div>
+              <div><span>BUDGET</span><strong data-clearing-field="budget">—</strong><small>PAISE</small></div>
+            </div>
+            <div class="buyer-rule-columns clearing-rule-columns">
+              <section><p class="micro-label">HARD CONSTRAINTS</p><div class="buyer-rule-list" data-clearing-field="hard-rules"></div></section>
+              <section><p class="micro-label">SOFT PREFERENCES</p><div class="buyer-rule-list" data-clearing-field="soft-rules"></div></section>
+            </div>
+
+            <section class="clearing-offers" aria-labelledby="clearing-offers-title">
+              <div class="buyer-section-heading">
+                <span class="buyer-step">02 /</span>
+                <div><p class="micro-label">PERSISTED AUTHORITY</p><h2 id="clearing-offers-title">Authenticated submitted offers</h2></div>
+              </div>
+              <div id="clearing-offer-list" class="clearing-offer-list"></div>
+            </section>
+
+            <section class="clearing-close" id="clearing-close-panel">
+              <div class="buyer-section-heading">
+                <span class="buyer-step">03 /</span>
+                <div><p class="micro-label">USER INITIATED</p><h2>Explicit close</h2></div>
+              </div>
+              <p class="clearing-before-copy">AGENTS PROPOSED.<br />MERCHANTS SUBMITTED.<br /><strong>NO WINNER EXISTS YET.</strong></p>
+              <button class="button button-primary" id="close-clearing-market" type="button"><span>Close &amp; clear market</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+              <p class="action-note">The request body is an empty object. Persisted server authority is the only allocator input.</p>
+            </section>
+
+            <section class="clearing-result" id="clearing-result" hidden>
+              <div class="buyer-section-heading">
+                <span class="buyer-step">04 /</span>
+                <div><p class="micro-label">DETERMINISTIC ALLOCATION</p><h2 data-clearing-result-field="title">Market closed</h2></div>
+              </div>
+              <p class="clearing-after-copy" data-clearing-result-field="message">RULES DECIDED.<br /><strong>AI DID NOT CHOOSE THE WINNERS.</strong></p>
+              <div data-clearing-confirmed-result>
+                <div class="clearing-result-metrics">
+                  <div><span>STATUS</span><strong data-clearing-result-field="status">—</strong></div>
+                  <div><span>REQUESTED</span><strong data-clearing-result-field="requested-quantity">—</strong></div>
+                  <div><span>FULFILLED</span><strong data-clearing-result-field="fulfilled-quantity">—</strong></div>
+                  <div><span>WINNERS</span><strong data-clearing-result-field="winner-count">—</strong></div>
+                  <div><span>TOTAL</span><strong data-clearing-result-field="total">—</strong><small>PAISE</small></div>
+                </div>
+                <div class="clearing-winners">
+                  <p class="micro-label">SERVER-RESOLVED WINNER IDENTITIES</p>
+                  <div id="clearing-winner-list" class="clearing-winner-list"></div>
+                </div>
+              </div>
+            </section>
+          </section>
+        </div>
+
+        <aside class="clearing-authority-map" aria-label="Clearing authority path">
+          <p class="micro-label">CLEARING PATH</p>
+          <ol>
+            <li><span>01</span><div><strong>Frozen buyer policy</strong><small>SERVER AUTHORITY</small></div></li>
+            <li><span>02</span><div><strong>Submitted offers</strong><small>SIGNED · AUTHENTICATED</small></div></li>
+            <li><span>03</span><div><strong>Explicit close</strong><small>EMPTY OBJECT BODY</small></div></li>
+            <li><span>04</span><div><strong>Deterministic allocation</strong><small>PRODUCTION LOGIC</small></div></li>
+          </ol>
+          <p>AI can propose inputs. It cannot close a market or select its winners.</p>
+        </aside>
       </section>
     </main>
 

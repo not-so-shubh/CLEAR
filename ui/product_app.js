@@ -34,6 +34,15 @@
   const requestMerchantProposal = document.querySelector("#request-merchant-proposal");
   const submitMerchantProposal = document.querySelector("#submit-merchant-proposal");
   const merchantActionStatus = document.querySelector("#merchant-action-status");
+  const clearingMarketList = document.querySelector("#clearing-market-list");
+  const refreshClearingMarkets = document.querySelector("#refresh-clearing-markets");
+  const clearingSnapshot = document.querySelector("#clearing-snapshot");
+  const clearingOfferList = document.querySelector("#clearing-offer-list");
+  const clearingClosePanel = document.querySelector("#clearing-close-panel");
+  const closeClearingMarket = document.querySelector("#close-clearing-market");
+  const clearingResult = document.querySelector("#clearing-result");
+  const clearingWinnerList = document.querySelector("#clearing-winner-list");
+  const clearingActionStatus = document.querySelector("#clearing-action-status");
 
   let currentMarketId = null;
   let running = false;
@@ -42,6 +51,11 @@
   let currentMerchantInbox = null;
   let merchantRunning = false;
   let merchantInboxRequest = 0;
+  let currentClearingMarketId = null;
+  let currentClearingState = null;
+  let clearingRunning = false;
+  let clearingSnapshotRequest = 0;
+  let reconcileActiveWorkspace = () => {};
 
   const setText = (selector, value) => {
     const target = document.querySelector(selector);
@@ -51,6 +65,7 @@
   const viewFromHash = () => {
     if (["#buyer", "#buyer-workspace"].includes(window.location.hash)) return "buyer";
     if (["#merchant", "#merchant-workspace"].includes(window.location.hash)) return "merchant";
+    if (["#clearing", "#market-clearing"].includes(window.location.hash)) return "clearing";
     if (["#evidence", "#top", "#demo", "#supporting", "#architecture"].includes(window.location.hash)) {
       return "evidence";
     }
@@ -58,7 +73,9 @@
   };
 
   const setView = (view, { hashMode = "replace", preserveHash = false } = {}) => {
-    const selected = ["buyer", "merchant", "evidence"].includes(view) ? view : "buyer";
+    const selected = ["buyer", "merchant", "clearing", "evidence"].includes(view)
+      ? view
+      : "buyer";
     document.body.dataset.view = selected;
     viewPanels.forEach((panel) => {
       panel.hidden = panel.dataset.appView !== selected;
@@ -74,7 +91,9 @@
           ? "#demo"
           : selected === "merchant"
             ? "#merchant-workspace"
-            : "#buyer-workspace";
+            : selected === "clearing"
+              ? "#clearing-workspace"
+              : "#buyer-workspace";
       skipLink.textContent = selected === "evidence" ? "Skip to demo" : "Skip to workspace";
     }
     try {
@@ -93,9 +112,11 @@
   };
 
   viewButtons.forEach((button) => {
-    button.addEventListener("click", () =>
-      setView(button.dataset.viewTarget, { hashMode: "push" }),
-    );
+    button.addEventListener("click", () => {
+      const selected = button.dataset.viewTarget;
+      setView(selected, { hashMode: "push" });
+      reconcileActiveWorkspace(selected);
+    });
   });
 
   const initialView = (() => {
@@ -106,13 +127,15 @@
     }
   })();
   const initialHashView = viewFromHash();
-  setView(initialHashView || (["merchant", "evidence"].includes(initialView) ? initialView : "buyer"), {
+  setView(initialHashView || (["merchant", "clearing", "evidence"].includes(initialView) ? initialView : "buyer"), {
     preserveHash: initialHashView !== null,
   });
 
   const routeFromHash = () => {
     const hashView = viewFromHash();
-    setView(hashView || document.body.dataset.view, { preserveHash: hashView !== null });
+    const selected = hashView || document.body.dataset.view;
+    setView(selected, { preserveHash: hashView !== null });
+    reconcileActiveWorkspace(selected);
   };
   window.addEventListener("hashchange", routeFromHash);
   window.addEventListener("popstate", routeFromHash);
@@ -776,6 +799,399 @@
     });
   }
 
+  const setClearingText = (field, value) => {
+    const target = document.querySelector(`[data-clearing-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const setClearingResultText = (field, value) => {
+    const target = document.querySelector(`[data-clearing-result-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const setClearingRunning = (value) => {
+    clearingRunning = value;
+    if (refreshClearingMarkets instanceof HTMLButtonElement) {
+      refreshClearingMarkets.disabled = value;
+    }
+    if (closeClearingMarket instanceof HTMLButtonElement) {
+      closeClearingMarket.disabled = value || currentClearingState !== "OPEN";
+    }
+    clearingMarketList?.querySelectorAll("button").forEach((button) => {
+      button.disabled = value;
+    });
+  };
+
+  const forgetClearingSelection = () => {
+    currentClearingMarketId = null;
+    currentClearingState = null;
+    if (clearingSnapshot) clearingSnapshot.hidden = true;
+    try {
+      window.localStorage.removeItem("clear-product-clearing-market-id");
+    } catch (_error) {
+      // Clearing convenience state is optional and carries no authority.
+    }
+  };
+
+  const updateClearingChoice = (market) => {
+    clearingMarketList?.querySelectorAll("button").forEach((button) => {
+      const selected = button.dataset.marketId === String(market.market_id);
+      button.setAttribute("aria-pressed", String(selected));
+      if (!selected) return;
+      const detail = button.querySelector("small");
+      if (detail) {
+        detail.textContent = `${String(market.state)} · ${String(market.requested_quantity)} REQUESTED`;
+      }
+    });
+  };
+
+  const renderClearingOffers = (offers) => {
+    if (!clearingOfferList) return;
+    clearingOfferList.replaceChildren();
+    if (!Array.isArray(offers) || offers.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "clearing-empty-offers";
+      empty.textContent = "No authenticated submitted offers are persisted for this market.";
+      clearingOfferList.append(empty);
+      return;
+    }
+    offers.forEach((offer) => {
+      const card = document.createElement("article");
+      const head = document.createElement("div");
+      const identity = document.createElement("div");
+      const name = document.createElement("strong");
+      const sku = document.createElement("small");
+      const state = document.createElement("span");
+      const facts = document.createElement("dl");
+      card.className = "clearing-offer-card";
+      head.className = "clearing-offer-head";
+      name.textContent = String(offer.display_name);
+      sku.textContent = `${String(offer.product_display_name)} · ${String(offer.merchant_sku)}`;
+      state.textContent = "SIGNED · AUTHENTICATED · SUBMITTED";
+      identity.append(name, sku);
+      head.append(identity, state);
+      [
+        ["OFFER ID", offer.offer_id],
+        ["MERCHANT ID", offer.merchant_id],
+        ["SKU ID", offer.sku_id],
+        ["QUANTITY", offer.submitted_quantity],
+        ["UNIT PRICE", `${String(offer.unit_price_paise)} PAISE`],
+        ["RECEIVED", offer.received_at],
+      ].forEach(([label, value]) => {
+        const fact = document.createElement("div");
+        const term = document.createElement("dt");
+        const detail = document.createElement("dd");
+        term.textContent = String(label);
+        detail.textContent = String(value);
+        fact.append(term, detail);
+        facts.append(fact);
+      });
+      card.append(head, facts);
+      clearingOfferList.append(card);
+    });
+  };
+
+  const renderClearingWinners = (winners) => {
+    if (!clearingWinnerList) return;
+    clearingWinnerList.replaceChildren();
+    if (!Array.isArray(winners) || winners.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "clearing-empty-offers";
+      empty.textContent = "No winner identities were produced.";
+      clearingWinnerList.append(empty);
+      return;
+    }
+    winners.forEach((winner) => {
+      const item = document.createElement("div");
+      const name = document.createElement("strong");
+      const identity = document.createElement("span");
+      name.textContent = String(winner.display_name);
+      identity.textContent = String(winner.merchant_id);
+      item.append(name, identity);
+      clearingWinnerList.append(item);
+    });
+  };
+
+  const renderClearingSnapshot = (payload) => {
+    const market = payload?.market;
+    if (!market || typeof market !== "object" || !Array.isArray(payload.submitted_offers)) {
+      throw new Error("The clearing snapshot failed its presentation boundary.");
+    }
+    if (market.state !== "OPEN" && market.state !== "CLOSED") {
+      throw new Error("The clearing snapshot has no authoritative market state.");
+    }
+    if (market.state === "OPEN" && payload.result !== null) {
+      throw new Error("An open market cannot carry a clearing result.");
+    }
+    if (market.state === "CLOSED" && (!payload.result || typeof payload.result !== "object")) {
+      throw new Error("A closed market has no validated clearing result.");
+    }
+    currentClearingMarketId = String(market.market_id);
+    currentClearingState = market.state;
+    setClearingText("market-id", market.market_id);
+    setClearingText("market-state", market.state);
+    setClearingText("requested-quantity", market.requested_quantity);
+    setClearingText("minimum-quantity", market.minimum_acceptable_quantity);
+    setClearingText("max-suppliers", market.max_winners);
+    setClearingText("budget", market.max_total_payment_paise);
+    renderRuleList('[data-clearing-field="hard-rules"]', market.hard_constraints);
+    renderRuleList('[data-clearing-field="soft-rules"]', market.soft_preferences);
+    renderClearingOffers(payload.submitted_offers);
+    updateClearingChoice(market);
+    if (clearingSnapshot) clearingSnapshot.hidden = false;
+
+    if (market.state === "OPEN") {
+      if (clearingClosePanel) clearingClosePanel.hidden = false;
+      if (clearingResult) clearingResult.hidden = true;
+      if (clearingActionStatus) {
+        clearingActionStatus.textContent =
+          "OPEN · authenticated submissions loaded · no winner exists yet.";
+      }
+    } else {
+      const result = payload.result;
+      const confirmed = document.querySelector("[data-clearing-confirmed-result]");
+      if (clearingClosePanel) clearingClosePanel.hidden = true;
+      if (clearingResult) clearingResult.hidden = false;
+      if (confirmed) confirmed.hidden = false;
+      setClearingResultText(
+        "title",
+        result.allocation_status === "FEASIBLE" ? "MARKET CLOSED" : "NO FEASIBLE ALLOCATION",
+      );
+      setClearingResultText(
+        "message",
+        "RULES DECIDED.\nAI DID NOT CHOOSE THE WINNERS.",
+      );
+      setClearingResultText("status", result.allocation_status);
+      setClearingResultText("requested-quantity", result.requested_quantity);
+      setClearingResultText("fulfilled-quantity", result.fulfilled_quantity);
+      setClearingResultText("winner-count", result.winner_count);
+      setClearingResultText("total", result.total_payment_paise);
+      renderClearingWinners(result.winners);
+      if (clearingActionStatus) {
+        clearingActionStatus.textContent =
+          "CLOSED · authoritative allocation restored from the server.";
+      }
+    }
+    try {
+      window.localStorage.setItem(
+        "clear-product-clearing-market-id",
+        currentClearingMarketId,
+      );
+    } catch (_error) {
+      // The selected market remains usable without browser storage.
+    }
+    setClearingRunning(false);
+  };
+
+  const renderClearingNotConfirmed = () => {
+    const confirmed = document.querySelector("[data-clearing-confirmed-result]");
+    currentClearingState = null;
+    if (clearingClosePanel) clearingClosePanel.hidden = true;
+    if (clearingResult) clearingResult.hidden = false;
+    if (confirmed) confirmed.hidden = true;
+    setClearingResultText("title", "CLOSE OUTCOME NOT CONFIRMED");
+    setClearingResultText(
+      "message",
+      "The server state could not be reconciled. No outcome or winner is inferred.",
+    );
+    if (clearingActionStatus) {
+      clearingActionStatus.textContent =
+        "CLOSE OUTCOME NOT CONFIRMED · refresh authoritative state before acting.";
+    }
+    setClearingRunning(false);
+  };
+
+  const loadClearingSnapshot = async (marketId) => {
+    const requestNumber = ++clearingSnapshotRequest;
+    try {
+      const response = await requestJSON(
+        `/api/product-v1/markets/${encodeURIComponent(marketId)}/clearing`,
+        { headers: {} },
+      );
+      if (requestNumber !== clearingSnapshotRequest || currentClearingMarketId !== marketId) {
+        return;
+      }
+      if (response.status === 404) {
+        forgetClearingSelection();
+        setClearingRunning(false);
+        if (clearingActionStatus) {
+          clearingActionStatus.textContent =
+            "The server returned 404. Only the remembered clearing selection was cleared.";
+        }
+        return;
+      }
+      if (!response.ok) throw new Error("The authoritative clearing snapshot was unavailable.");
+      renderClearingSnapshot(response.payload);
+    } catch (error) {
+      if (requestNumber !== clearingSnapshotRequest) return;
+      if (clearingSnapshot) clearingSnapshot.hidden = true;
+      if (clearingActionStatus) {
+        clearingActionStatus.textContent =
+          error instanceof Error
+            ? error.message
+            : "The authoritative clearing snapshot was unavailable.";
+      }
+      setClearingRunning(false);
+    }
+  };
+
+  const selectClearingMarket = (marketId) => {
+    currentClearingMarketId = marketId;
+    currentClearingState = null;
+    clearingMarketList?.querySelectorAll("button").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.marketId === marketId));
+    });
+    if (clearingSnapshot) clearingSnapshot.hidden = true;
+    if (clearingActionStatus) {
+      clearingActionStatus.textContent = "Loading authoritative clearing snapshot.";
+    }
+    setClearingRunning(true);
+    loadClearingSnapshot(marketId);
+  };
+
+  const renderClearingMarkets = (markets) => {
+    if (!clearingMarketList) return;
+    clearingMarketList.replaceChildren();
+    if (!Array.isArray(markets) || markets.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "clearing-empty-offers";
+      empty.textContent = "No persisted runtime markets are available.";
+      clearingMarketList.append(empty);
+      return;
+    }
+    markets.forEach((market) => {
+      const button = document.createElement("button");
+      const title = document.createElement("strong");
+      const detail = document.createElement("small");
+      button.type = "button";
+      button.className = "clearing-market-choice";
+      button.dataset.marketId = String(market.market_id);
+      button.setAttribute("aria-pressed", "false");
+      title.textContent = String(market.market_id);
+      detail.textContent = `${String(market.state)} · ${String(market.submitted_offer_count)} SUBMITTED · ${String(market.requested_quantity)} REQUESTED`;
+      button.append(title, detail);
+      button.addEventListener("click", () => selectClearingMarket(String(market.market_id)));
+      clearingMarketList.append(button);
+    });
+  };
+
+  const loadClearingMarkets = async (preferredMarketId = null) => {
+    setClearingRunning(true);
+    if (clearingActionStatus) {
+      clearingActionStatus.textContent = "Discovering persisted open and closed markets.";
+    }
+    try {
+      const response = await requestJSON("/api/product-v1/markets", { headers: {} });
+      if (!response.ok || !Array.isArray(response.payload.markets)) {
+        throw new Error("Runtime market discovery failed closed.");
+      }
+      renderClearingMarkets(response.payload.markets);
+      let rememberedMarketId = preferredMarketId;
+      if (!rememberedMarketId) {
+        try {
+          rememberedMarketId = window.localStorage.getItem(
+            "clear-product-clearing-market-id",
+          );
+        } catch (_error) {
+          // Selection remains explicit when browser storage is unavailable.
+        }
+      }
+      const rememberedMarket = response.payload.markets.find(
+        (market) => String(market.market_id) === rememberedMarketId,
+      );
+      if (rememberedMarket) {
+        selectClearingMarket(String(rememberedMarket.market_id));
+        return;
+      }
+      if (rememberedMarketId) {
+        currentClearingMarketId = rememberedMarketId;
+        await loadClearingSnapshot(rememberedMarketId);
+        return;
+      }
+      if (response.payload.markets.length > 0) {
+        selectClearingMarket(String(response.payload.markets[0].market_id));
+        return;
+      }
+      setClearingRunning(false);
+      if (clearingActionStatus) {
+        clearingActionStatus.textContent = "No persisted runtime market exists yet.";
+      }
+    } catch (error) {
+      if (clearingActionStatus) {
+        clearingActionStatus.textContent =
+          error instanceof Error ? error.message : "Runtime market discovery failed closed.";
+      }
+      setClearingRunning(false);
+    }
+  };
+
+  const reconcileClearingClose = async (marketId) => {
+    try {
+      const response = await requestJSON(
+        `/api/product-v1/markets/${encodeURIComponent(marketId)}/clearing`,
+        { headers: {} },
+      );
+      if (response.status === 404) {
+        forgetClearingSelection();
+        if (clearingActionStatus) {
+          clearingActionStatus.textContent =
+            "The server returned 404. Only the remembered clearing selection was cleared.";
+        }
+        setClearingRunning(false);
+        return;
+      }
+      if (!response.ok || !response.payload?.market) {
+        renderClearingNotConfirmed();
+        return;
+      }
+      if (response.payload.market.state === "CLOSED") {
+        renderClearingSnapshot(response.payload);
+        return;
+      }
+      if (response.payload.market.state === "OPEN") {
+        renderClearingSnapshot(response.payload);
+        if (clearingActionStatus) {
+          clearingActionStatus.textContent =
+            "CLOSE NOT OBSERVED COMPLETE · deliberate retry is available.";
+        }
+        return;
+      }
+    } catch (_error) {
+      // The close outcome remains unknown until an authoritative GET succeeds.
+    }
+    renderClearingNotConfirmed();
+  };
+
+  if (closeClearingMarket instanceof HTMLButtonElement) {
+    closeClearingMarket.addEventListener("click", async () => {
+      if (clearingRunning || currentClearingState !== "OPEN" || !currentClearingMarketId) {
+        return;
+      }
+      const marketId = currentClearingMarketId;
+      setClearingRunning(true);
+      if (clearingActionStatus) {
+        clearingActionStatus.textContent =
+          "CLOSING · deterministic production allocation · zero AI calls";
+      }
+      try {
+        await requestJSON(`/api/product-v1/markets/${encodeURIComponent(marketId)}/close`, {
+          method: "POST",
+          body: "{}",
+        });
+      } catch (_error) {
+        // Response loss is reconciled with one authoritative GET below.
+      }
+      await reconcileClearingClose(marketId);
+    });
+  }
+
+  if (refreshClearingMarkets instanceof HTMLButtonElement) {
+    refreshClearingMarkets.addEventListener("click", () => {
+      if (clearingRunning) return;
+      loadClearingMarkets(currentClearingMarketId);
+    });
+  }
+
   const renderInterpretationFailure = (payload) => {
     currentMarketId = null;
     if (interpretationPanel) interpretationPanel.hidden = false;
@@ -932,7 +1348,16 @@
     setText('[data-frozen-field="market-state"]', payload.market_state);
     setText('[data-frozen-field="market-id"]', payload.market_id);
     setText('[data-frozen-field="commitment"]', payload.buyer_policy_commitment_sha256);
-    if (actionStatus) actionStatus.textContent = "Buyer policy frozen. A persisted runtime market is now open.";
+    if (actionStatus) {
+      if (payload.market_state === "OPEN") {
+        actionStatus.textContent = "Buyer policy frozen. The persisted runtime market is open.";
+      } else if (payload.market_state === "CLOSED") {
+        actionStatus.textContent = "Buyer policy frozen. The persisted runtime market is closed.";
+      } else {
+        actionStatus.textContent =
+          "Buyer policy frozen. The authoritative runtime market state is unavailable.";
+      }
+    }
     if (newDraftButton instanceof HTMLButtonElement) newDraftButton.hidden = false;
     setStage("market");
     try {
@@ -1029,7 +1454,17 @@
       .slice(0, 16);
   }
 
+  reconcileActiveWorkspace = (view) => {
+    if (view === "merchant" && currentMerchantId && !merchantRunning) {
+      loadMerchantInbox(currentMerchantId);
+    }
+    if (view === "buyer" && !running) {
+      restoreFrozenMarket();
+    }
+  };
+
   setStage("draft");
   loadMerchants();
+  loadClearingMarkets();
   restoreFrozenMarket();
 })();

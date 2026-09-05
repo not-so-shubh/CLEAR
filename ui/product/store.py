@@ -112,6 +112,15 @@ def configured_product_db_path() -> Path:
     return Path.home() / ".clear" / "product-v1.sqlite3"
 
 
+def _decode_persisted_string_array(value: object) -> tuple[str, ...]:
+    if type(value) is not str:
+        raise TypeError("persisted JSON array must be text")
+    decoded = json.loads(value)
+    if type(decoded) is not list or any(type(item) is not str for item in decoded):
+        raise ValueError("persisted JSON value must be an array of strings")
+    return tuple(decoded)
+
+
 class ProductStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -350,10 +359,24 @@ class ProductStore:
         if row is None:
             return None
         values = dict(row)
-        values["eligible_merchant_ids"] = tuple(
-            json.loads(values.pop("eligible_merchant_ids_json"))
+        values["eligible_merchant_ids"] = _decode_persisted_string_array(
+            values.pop("eligible_merchant_ids_json")
         )
         return MarketRecord(**values)
+
+    @staticmethod
+    def list_markets(connection: sqlite3.Connection) -> tuple[MarketRecord, ...]:
+        rows = connection.execute(
+            "SELECT * FROM product_markets ORDER BY created_at, market_id"
+        ).fetchall()
+        markets: list[MarketRecord] = []
+        for row in rows:
+            values = dict(row)
+            values["eligible_merchant_ids"] = _decode_persisted_string_array(
+                values.pop("eligible_merchant_ids_json")
+            )
+            markets.append(MarketRecord(**values))
+        return tuple(markets)
 
     @staticmethod
     def insert_buyer_draft(connection: sqlite3.Connection, record: BuyerDraftRecord) -> None:
@@ -551,8 +574,8 @@ class ProductStore:
         markets: list[MarketRecord] = []
         for row in rows:
             values = dict(row)
-            values["eligible_merchant_ids"] = tuple(
-                json.loads(values.pop("eligible_merchant_ids_json"))
+            values["eligible_merchant_ids"] = _decode_persisted_string_array(
+                values.pop("eligible_merchant_ids_json")
             )
             markets.append(MarketRecord(**values))
         return tuple(markets)
@@ -709,5 +732,7 @@ class ProductStore:
             return None
         values = dict(row)
         values["certificate_verified"] = bool(values["certificate_verified"])
-        values["winner_merchant_ids"] = tuple(json.loads(values.pop("winner_merchant_ids_json")))
+        values["winner_merchant_ids"] = _decode_persisted_string_array(
+            values.pop("winner_merchant_ids_json")
+        )
         return ResultRecord(**values)

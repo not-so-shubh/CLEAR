@@ -358,3 +358,108 @@ def test_merchant_workspace_routes_are_authoritative_strict_and_share_ai_lock(
     assert busy_status == 409
     assert busy["code"] == "LIVE_AI_BUSY"
     assert busy["provider_invoked"] is False
+
+
+def test_clearing_discovery_snapshot_and_strict_close_routes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLEAR_PRODUCT_DB_PATH", str(tmp_path / "product.sqlite3"))
+    merchants = [_post("/api/product-v1/merchants", _merchant(name))[1] for name in ("One", "Two")]
+    _, market = _post(
+        "/api/product-v1/markets",
+        {
+            "requested_quantity": 2,
+            "minimum_acceptable_quantity": 2,
+            "max_winners": 2,
+            "max_total_payment_paise": 10_000,
+            "eligible_merchant_ids": [merchant["merchant_id"] for merchant in merchants],
+            "offer_deadline": canonical_utc_datetime(datetime.now(UTC) + timedelta(hours=1)),
+        },
+    )
+    market_id = market["market_id"]
+    for merchant, price in zip(merchants, (500, 600), strict=True):
+        assert (
+            _post(
+                f"/api/product-v1/markets/{market_id}/offers",
+                {
+                    "merchant_id": merchant["merchant_id"],
+                    "proposed_quantity": 1,
+                    "proposed_unit_price_paise": price,
+                },
+            )[0]
+            == 201
+        )
+
+    list_status, discovered = _request("GET", "/api/product-v1/markets")
+    open_status, opened = _request("GET", f"/api/product-v1/markets/{market_id}/clearing")
+    rejected_status, _ = _post(
+        f"/api/product-v1/markets/{market_id}/close",
+        {"winner_ids": [merchants[0]["merchant_id"]]},
+    )
+    close_status, close_payload = _post(f"/api/product-v1/markets/{market_id}/close", {})
+    closed_status, closed = _request("GET", f"/api/product-v1/markets/{market_id}/clearing")
+    rediscovery_status, rediscovered = _request("GET", "/api/product-v1/markets")
+
+    assert list_status == open_status == close_status == closed_status == 200
+    assert rediscovery_status == 200
+    assert rejected_status == 400
+    assert discovered["markets"][0]["state"] == "OPEN"
+    assert discovered["markets"][0]["submitted_offer_count"] == 2
+    assert opened["market"]["state"] == "OPEN"
+    assert opened["result"] is None
+    assert all(value["authenticated"] is True for value in opened["submitted_offers"])
+    assert close_payload["market_state"] == "CLOSED"
+    assert closed["market"]["state"] == "CLOSED"
+    assert closed["result"]["allocation_status"] == "FEASIBLE"
+    assert {value["display_name"] for value in closed["result"]["winners"]} == {
+        "One",
+        "Two",
+    }
+    assert rediscovered["markets"][0]["state"] == "CLOSED"
+    for forbidden in (
+        "certificate_id",
+        "certificate_digest",
+        "canonical_certificate",
+        "signature_hex",
+    ):
+        assert forbidden not in json.dumps(closed)
+
+
+def test_clearing_http_maps_malformed_persisted_winner_ids_to_product_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLEAR_PRODUCT_DB_PATH", str(tmp_path / "product.sqlite3"))
+    merchants = [_post("/api/product-v1/merchants", _merchant(name))[1] for name in ("One", "Two")]
+    _, market = _post(
+        "/api/product-v1/markets",
+        {
+            "requested_quantity": 2,
+            "minimum_acceptable_quantity": 2,
+            "max_winners": 2,
+            "max_total_payment_paise": 10_000,
+            "eligible_merchant_ids": [merchant["merchant_id"] for merchant in merchants],
+            "offer_deadline": canonical_utc_datetime(datetime.now(UTC) + timedelta(hours=1)),
+        },
+    )
+    market_id = market["market_id"]
+    assert _post(f"/api/product-v1/markets/{market_id}/close", {})[0] == 200
+    service = server_module.ProductService()
+    with service.store.connection(write=True) as connection:
+        connection.execute(
+            """
+            UPDATE product_market_results SET winner_merchant_ids_json = ?
+            WHERE market_id = ?
+            """,
+            ("{", market_id),
+        )
+
+    status, payload = _request("GET", f"/api/product-v1/markets/{market_id}/clearing")
+
+    assert status == 500
+    assert payload == {
+        "error": {
+            "code": "PERSISTED_DATA_INVALID",
+            "message": "Product request failed closed.",
+        }
+    }
