@@ -80,8 +80,8 @@ def test_bootstrap_creates_only_the_open_authenticated_rehearsal_fixture(
     assert markets[0] == {
         "market_id": market_id,
         "state": "OPEN",
-        "requested_quantity": 5,
-        "minimum_acceptable_quantity": 1,
+        "requested_quantity": 8,
+        "minimum_acceptable_quantity": 8,
         "max_winners": 2,
         "max_total_payment_paise": 500_000,
         "offer_deadline": "2038-06-08T12:00:00.000000Z",
@@ -140,16 +140,23 @@ def test_real_close_and_authorization_produce_the_expected_authority(
     assert isinstance(result, dict)
     assert result == {
         "allocation_status": "FEASIBLE",
-        "requested_quantity": 5,
-        "fulfilled_quantity": 5,
-        "winner_count": 1,
-        "total_payment_paise": 225_000,
-        "winners": [
-            {
-                "merchant_id": output["merchants"][0]["merchant_id"],
-                "display_name": "Alpha Systems",
-            }
-        ],
+        "requested_quantity": 8,
+        "fulfilled_quantity": 8,
+        "winner_count": 2,
+        "total_payment_paise": 375_000,
+        "winners": sorted(
+            [
+                {
+                    "merchant_id": output["merchants"][0]["merchant_id"],
+                    "display_name": "Alpha Systems",
+                },
+                {
+                    "merchant_id": output["merchants"][1]["merchant_id"],
+                    "display_name": "Beta Systems",
+                },
+            ],
+            key=lambda winner: winner["merchant_id"],
+        ),
     }
 
     authority = service.get_market_authority(market_id)
@@ -168,7 +175,18 @@ def test_real_close_and_authorization_produce_the_expected_authority(
     assert governor["state"] == "AUTHORIZED"
     plan = governor["execution_plan"]
     assert plan["execution_plan_version"] == "execution-plan-v1"
-    assert plan["order_amount_paise"] == 225_000
+    assert plan["order_amount_paise"] == 375_000
+    assert sorted(
+        (
+            line["display_name"],
+            line["allocated_quantity"],
+            line["transfer_amount_paise"],
+        )
+        for line in plan["transfer_obligations"]
+    ) == [
+        ("Alpha Systems", 5, 225_000),
+        ("Beta Systems", 3, 150_000),
+    ]
     assert plan["provider_action"] == "NOT DEMONSTRATED"
     assert authorized["razorpay_order"]["state"] == "NOT_DEMONSTRATED"
     assert ledger_path.is_file()

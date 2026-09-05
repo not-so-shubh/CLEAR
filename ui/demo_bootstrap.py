@@ -209,8 +209,8 @@ def bootstrap_demo(
     market = service.create_market(
         _create_market_request.model_validate(
             {
-                "requested_quantity": 5,
-                "minimum_acceptable_quantity": 1,
+                "requested_quantity": 8,
+                "minimum_acceptable_quantity": 8,
                 "max_winners": 2,
                 "max_total_payment_paise": 500_000,
                 "eligible_merchant_ids": merchant_ids,
