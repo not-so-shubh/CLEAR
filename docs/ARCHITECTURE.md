@@ -70,7 +70,7 @@ the system is not an N-buyer exchange.
 | Deterministic kernel | Parsing, validation, commitments, admission, allocation, canonicalization, and authorization semantics | External facts that were never authenticated or supplied |
 | Independent verifier | Replaying supplied certificate evidence and recomputing the expected V2 allocation | Proving that no omitted real-world event or timely offer existed |
 | Money Governor and ledger | Enforcing explicit authorizations, budgets, recipient bindings, execution uniqueness, and immutable provider observations | Exactly-once delivery by an external provider |
-| Razorpay boundary | Returning externally observed Test Mode order, payment, and transfer data | Settlement finality, fulfillment, or correctness absent authenticated recording and replay |
+| Razorpay boundary | Returning externally observed Test Mode order, payment, and transfer data; the reviewed public run reached `PAYMENT_CAPTURED` through authenticated webhook input and deterministic replay | Settlement finality, fulfillment, or correctness absent authenticated recording and replay |
 | Physical world | Nothing is inferred automatically | Inventory truth, shipment, receipt, disputes, and legal performance |
 
 ## 3. Dependency direction
@@ -311,14 +311,23 @@ issuing another POST. Normal orchestration coordinates governor authorization, o
 state, Route mapping, and transfers. The graceful path converts recognized uncertainty into an
 explicit recovery disposition instead of treating ambiguity as success.
 
-The provider code and controlled-transport tests cover these behaviors. The reviewed public judge
-run also exercised the production order path against Razorpay Test Mode. Its first request returned
-`CREATED`; an identical second request returned `EXISTING` through provider-backed retrieval. The
-provider order, execution ID, receipt, and ₹2,250 / 225000 paise INR amount were unchanged.
+The provider code and controlled-transport tests cover these behaviors. An earlier reviewed public
+order-only observation exercised the production order path against Razorpay Test Mode: its first
+request returned `CREATED`, an identical second request returned `EXISTING` through provider-backed
+retrieval, and the provider order, execution ID, receipt, and **₹2,250 / 225000 paise INR** amount
+were unchanged.
 
-That public observation is limited to order creation and existing-order resolution. It does not
-show customer payment, capture, public-run webhook handling, Route transfer creation, settlement,
-refunds, reversals, disputes, fulfillment, real-money movement, or exactly-once external delivery.
+A later reviewed public Test Mode run exercised Standard Checkout and reached `PAYMENT_CAPTURED`
+only after an authenticated Razorpay webhook was accepted and deterministic server replay confirmed
+the payment state. This is **HISTORICAL LIVE EVIDENCE ONLY** for that observed run. Its evidence
+identity was provider order `order_TawQXx7CYUnomd`, provider payment `pay_TawQsZwHzumnsu`, execution
+`17096ec0-d355-43ab-9fe1-fbc6fdb4f6ca`, and **₹3,750.00 / 375000 paise INR**. The replay UI showed
+webhook disposition `—`; no `RECORDED` or `DUPLICATE` disposition is claimed here.
+
+The browser Checkout callback was advisory and did not establish capture. The reviewed run does not
+demonstrate Route transfer execution, supplier transfer or payout, settlement, refunds, reversals,
+disputes, physical fulfillment, real-money movement, or exactly-once external delivery. These facts
+are evidence for that run, not a promise that later sessions will reproduce it automatically.
 Refunds, reversals, settlement processing, disputes, and fulfillment are not implemented.
 
 ## 11. Failure and recovery semantics
@@ -391,8 +400,9 @@ not silently substituted for V2 behavior.
 - no trusted physical inventory or fulfillment oracle;
 - no external receipt system proving transcript completeness;
 - no refunds, reversals, settlement processor, disputes, or shipment workflow;
-- no public-run payment-capture, webhook, transfer, settlement, refund/reversal, or real-money
-  evidence; reviewed external Razorpay evidence is limited to the Test Mode order path;
+- the reviewed public Test Mode run includes authenticated webhook and deterministic replay evidence
+  reaching `PAYMENT_CAPTURED`, but does not include Route transfer execution, supplier transfer or
+  payout, settlement, refunds, reversals, fulfillment, disputes, or real-money movement;
 - no exactly-once guarantee across provider/network boundaries;
 - no collusion or Sybil resistance guarantee;
 - no formal verification, zero-knowledge proof, or blockchain layer; and

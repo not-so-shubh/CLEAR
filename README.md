@@ -50,20 +50,31 @@ The reviewed deployment supports this judge flow:
 7. Return to the valid certificate, authorize it through the Money Governor, and inspect
    `ExecutionPlanV1`.
 8. Explicitly create a Razorpay Test Mode order.
+9. Open Razorpay Standard Checkout in Test Mode. The browser callback remains advisory; the
+   server accepts authenticated webhook input and deterministically replays payment state.
+10. Observe `PAYMENT_CAPTURED` only after authenticated webhook evidence and server replay confirm
+    the state.
 
-The reviewed public run returned `CREATED` for the first Razorpay Test Mode order request. An
-identical second request returned `EXISTING` after provider-backed retrieval. Both observations had
-the same provider order, execution ID, receipt, and amount: **₹2,250 / 225000 paise INR**.
+An earlier reviewed order-only observation returned `CREATED` for the first Razorpay Test Mode order
+request and `EXISTING` for an identical provider-backed retrieval. That earlier observation used
+**₹2,250 / 225000 paise INR**.
+
+The reviewed public Test Mode run then demonstrated a payment progressing to `PAYMENT_CAPTURED`
+only after an authenticated Razorpay webhook was accepted and deterministic server replay confirmed
+the payment state. Its historical evidence identity was provider order `order_TawQXx7CYUnomd`,
+provider payment `pay_TawQsZwHzumnsu`, execution `17096ec0-d355-43ab-9fe1-fbc6fdb4f6ca`, and
+**₹3,750.00 / 375000 paise INR**. The replay UI showed webhook disposition `—`; this run is not a
+claim that later sessions will reproduce the same provider observation automatically.
 
 AI and Razorpay actions occur only when the user requests them. Provider configuration and secrets
 stay on the server. The deployment is one application process and one ephemeral SQLite-backed demo
 session shared by its visitors. It is judge infrastructure, not a production-grade multi-tenant
 service, and a restart creates fresh seeded state.
 
-The reviewed Razorpay run demonstrates Test Mode order creation and existing-order resolution. It
-does not demonstrate customer payment, capture, public-run webhook handling, transfer creation,
-settlement, refunds or reversals, fulfillment, real-money movement, or exactly-once external
-delivery.
+The reviewed public run is **HISTORICAL LIVE EVIDENCE ONLY** for Test Mode checkout, authenticated
+webhook ingress, and deterministic captured-payment replay. It does not demonstrate settlement,
+supplier transfer or payout, Route transfer execution, refunds or reversals, physical fulfillment,
+disputes, real-money movement, or exactly-once external delivery.
 
 ### Local deterministic rehearsal
 
@@ -120,7 +131,7 @@ Governor-approved plan.
 | Allocation | Deterministic OR-Tools CP-SAT implements `heterogeneous-pay-as-bid-v2` and `quantity-cost-soft-objective-v2` using integer paise. |
 | Certificate and verifier | `AllocationCertificateV2` carries the decision evidence. A structurally independent oracle replays admission and allocation rather than trusting the stored result. |
 | Money Governor | A verified certificate plus explicit financial authorization reserves an execution in SQLite and produces immutable `ExecutionPlanV1`. |
-| Razorpay Test Mode | Governor-gated order, webhook, payment-state, Route mapping, transfer, reconciliation, and recovery code is implemented. Only the order create/existing-resolution path has reviewed public external evidence. |
+| Razorpay Test Mode | Governor-gated order, webhook, payment-state, Route mapping, transfer, reconciliation, and recovery code is implemented. Reviewed public Test Mode evidence covers order creation and authenticated captured-payment replay; transfer/recovery/settlement execution is not demonstrated by that run. |
 | AgentMarketBench | The replacement final evaluation covers 10,000 cases. It is evidence for its frozen corpus, not production telemetry. |
 
 In the reviewed public judge run, an externally supplied OpenAI-compatible provider produced an
@@ -173,7 +184,9 @@ immutable plan. An AI response, merchant proposal, or stored allocation is insuf
 The Razorpay integration is Test Mode only. Provider responses and authenticated webhook inputs are
 validated and recorded before deterministic payment-state replay. Transfer work additionally
 requires recorded captured-payment evidence. A provider order or transfer object is not proof of
-customer payment, settlement, or fulfillment.
+customer payment, settlement, or fulfillment. The reviewed public Test Mode evidence reached
+`PAYMENT_CAPTURED` through authenticated webhook input and deterministic replay; that historical
+observation is not settlement, payout, fulfillment, or real-money evidence.
 
 ## Evidence labels
 
@@ -268,8 +281,9 @@ See [REPRODUCIBILITY.md](REPRODUCIBILITY.md) for evidence identity and interpret
 - Transcript completeness requires an external trusted receipt or observation system.
 - Physical fulfillment, shipping, disputes, refunds, reversals, and settlement processing are not
   implemented.
-- The reviewed public provider evidence does not include payment capture, public-run webhook
-  delivery, transfers, settlement, refunds, reversals, fulfillment, or real money.
+- The reviewed public Test Mode run includes authenticated webhook and deterministic replay evidence
+  reaching `PAYMENT_CAPTURED`, but does not include supplier transfer/payout, Route transfer
+  execution, settlement, refunds, reversals, fulfillment, disputes, or real-money movement.
 - Ledger reservations, request fingerprints, provider references, and reconciliation reduce
   duplicate effects; they do not provide exactly-once external delivery.
 - CLEAR does not claim collusion resistance, Sybil resistance, formal verification, zero-knowledge
