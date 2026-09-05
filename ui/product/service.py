@@ -104,6 +104,9 @@ from clear_market.payments.razorpay import (
     RazorpayOrderTransportV1,
     RazorpayOrderV1,
     RazorpayTestCredentialsV1,
+    RazorpayWebhookError,
+    RazorpayWebhookVerificationConfigV1,
+    authenticate_and_record_razorpay_webhook_v1,
     create_razorpay_test_order_v1,
     razorpay_order_create_fingerprint_v1,
 )
@@ -112,6 +115,11 @@ from clear_market.payments.recovery import (
     RazorpayOrderRecoveryError,
     RazorpayOrderRecoveryResultV1,
     recover_razorpay_test_order_v1,
+)
+from clear_market.payments.state import (
+    ClearPaymentStateSnapshotV1,
+    PaymentStateError,
+    derive_razorpay_payment_state_v1,
 )
 from clear_market.persistence import (
     ExecutionReservationV1,
@@ -186,6 +194,8 @@ _RAZORPAY_LIMITATIONS = (
     "This does not demonstrate payment capture, customer payment, webhook handling, "
     "transfers, settlement, refunds, fulfillment, or real-money movement."
 )
+_RAZORPAY_WEBHOOK_SECRET_ENV = "RAZORPAY_TEST_WEBHOOK_SECRET"
+_RAZORPAY_ACCOUNT_ID_ENV = "RAZORPAY_TEST_ACCOUNT_ID"
 
 
 class ProductErrorCode(StrEnum):
@@ -3015,6 +3025,7 @@ class ProductService:
         plan: ExecutionPlanV1,
         resolution: str,
         order: RazorpayOrderV1,
+        checkout_key_id: str,
     ) -> dict[str, object]:
         if (
             type(order) is not RazorpayOrderV1
@@ -3045,6 +3056,13 @@ class ProductService:
             "currency": "INR",
             "receipt": plan.execution_id,
             "provider_contacted": True,
+            "checkout": {
+                "key_id": checkout_key_id,
+                "provider_order_id": order.provider_order_id,
+                "amount_paise": plan.order_amount.amount_paise,
+                "currency": "INR",
+                "execution_id": plan.execution_id,
+            },
             "scope": _RAZORPAY_SCOPE,
             "limitations": _RAZORPAY_LIMITATIONS,
         }
@@ -3075,7 +3093,8 @@ class ProductService:
                 plan,
             )
 
-        credentials = self._razorpay_credentials(os.environ if environment is None else environment)
+        credential_environment = os.environ if environment is None else environment
+        credentials = self._razorpay_credentials(credential_environment)
         if credentials is None:
             return self._razorpay_failure_presentation(
                 market_id=market_id,
@@ -3148,6 +3167,7 @@ class ProductService:
                         plan=plan,
                         resolution=recovered.disposition.value,
                         order=recovered.order,
+                        checkout_key_id=credential_environment["RAZORPAY_TEST_KEY_ID"],
                     )
         except RazorpayOrderRecoveryError as error:
             return self._razorpay_failure_presentation(
@@ -3180,6 +3200,283 @@ class ProductService:
             plan=plan,
             resolution=created.resolution.value,
             order=created.order,
+            checkout_key_id=credential_environment["RAZORPAY_TEST_KEY_ID"],
+        )
+
+    @staticmethod
+    def _razorpay_webhook_config(
+        environment: Mapping[str, str] | None = None,
+    ) -> RazorpayWebhookVerificationConfigV1 | None:
+        values = os.environ if environment is None else environment
+        secret = values.get(_RAZORPAY_WEBHOOK_SECRET_ENV)
+        account_id = values.get(_RAZORPAY_ACCOUNT_ID_ENV)
+        if secret is None or account_id is None:
+            return None
+        try:
+            return RazorpayWebhookVerificationConfigV1(
+                expected_account_id=account_id,
+                secrets=(secret,),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _razorpay_payment_state_presentation(
+        *,
+        market_id: str,
+        snapshot: ClearPaymentStateSnapshotV1,
+        webhook_disposition: str | None = None,
+    ) -> dict[str, object]:
+        payment_id = snapshot.effective_payment_id
+        if payment_id is None and snapshot.evidence:
+            payment_id = snapshot.evidence[-1].provider_payment_id
+        payload: dict[str, object] = {
+            "result": "SUCCESS",
+            "mode": "RAZORPAY TEST MODE",
+            "market_id": market_id,
+            "execution_id": snapshot.execution_id,
+            "provider_order_id": snapshot.provider_order_id,
+            "provider_payment_id": payment_id,
+            "payment_state": snapshot.state.value,
+            "expected_amount_paise": snapshot.expected_amount.amount_paise,
+            "currency": snapshot.expected_amount.currency.value,
+            "truth_class": "REAL LOCAL PRODUCTION LOGIC",
+        }
+        if webhook_disposition is not None:
+            payload["webhook_disposition"] = webhook_disposition
+        return payload
+
+    @staticmethod
+    def _razorpay_payment_state_failure(
+        *,
+        code: str,
+        message: str,
+        market_id: str | None = None,
+        execution_id: str | None = None,
+        provider_order_id: str | None = None,
+        provider_payment_id: str | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "result": "FAILED",
+            "mode": "RAZORPAY TEST MODE",
+            "code": code,
+            "message": message,
+        }
+        if market_id is not None:
+            payload["market_id"] = market_id
+        if execution_id is not None:
+            payload["execution_id"] = execution_id
+        if provider_order_id is not None:
+            payload["provider_order_id"] = provider_order_id
+        if provider_payment_id is not None:
+            payload["provider_payment_id"] = provider_payment_id
+        return payload
+
+    @staticmethod
+    def _razorpay_payment_state_unavailable(
+        *,
+        code: str,
+        message: str,
+        market_id: str | None = None,
+        execution_id: str | None = None,
+        provider_order_id: str | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "result": "UNAVAILABLE",
+            "mode": "RAZORPAY TEST MODE",
+            "code": code,
+            "message": message,
+            "payment_state": "NOT AVAILABLE",
+        }
+        if market_id is not None:
+            payload["market_id"] = market_id
+        if execution_id is not None:
+            payload["execution_id"] = execution_id
+        if provider_order_id is not None:
+            payload["provider_order_id"] = provider_order_id
+        return payload
+
+    def _validated_razorpay_execution(
+        self,
+        market_id: str,
+    ) -> tuple[
+        str,
+        _ClosedAuthorityContext,
+        ExecutionAuthorityRecord,
+        ExecutionAuthorizationRequestV1,
+        datetime,
+        ExecutionPlanV1,
+        _RazorpayLedgerState,
+    ]:
+        validated_market_id = _parse_uuid(market_id)
+        with self.store.connection() as connection:
+            context = self._load_closed_authority_context(connection, validated_market_id)
+            record = self.store.get_execution_authority(connection, validated_market_id)
+            if record is None:
+                raise ProductServiceError(ProductErrorCode.EXECUTION_NOT_AUTHORIZED)
+            request, decision_time, plan = self._validated_execution_record(context, record)
+            if plan is None:
+                raise ProductServiceError(ProductErrorCode.EXECUTION_NOT_AUTHORIZED)
+            ledger_state = self._validate_financial_reservation(
+                context,
+                record,
+                decision_time,
+                plan,
+            )
+        return (
+            validated_market_id,
+            context,
+            record,
+            request,
+            decision_time,
+            plan,
+            ledger_state,
+        )
+
+    def record_razorpay_webhook(
+        self,
+        raw_body: bytes,
+        *,
+        signature_header: str,
+        event_id_header: str,
+        environment: Mapping[str, str] | None = None,
+    ) -> dict[str, object]:
+        verification_config = self._razorpay_webhook_config(environment)
+        if verification_config is None:
+            return self._razorpay_payment_state_unavailable(
+                code="RAZORPAY_TEST_WEBHOOK_CONFIGURATION_UNAVAILABLE",
+                message="Razorpay Test Mode webhook configuration is unavailable.",
+            )
+
+        try:
+            with SQLiteFinancialLedgerV1(str(self._financial_ledger_path)) as ledger:
+                ingress = authenticate_and_record_razorpay_webhook_v1(
+                    raw_body=raw_body,
+                    signature_header=signature_header,
+                    event_id_header=event_id_header,
+                    verification_config=verification_config,
+                    received_at=self._now(),
+                    ledger=ledger,
+                )
+                reservation = ledger.get_execution_reservation(ingress.event.execution_id)
+                if reservation is None:
+                    return self._razorpay_payment_state_failure(
+                        code="EXECUTION_NOT_FOUND",
+                        message="Authenticated Razorpay webhook execution was not found.",
+                        execution_id=ingress.event.execution_id,
+                        provider_order_id=ingress.event.provider_order_id,
+                        provider_payment_id=ingress.event.provider_payment_id,
+                    )
+                (
+                    market_id,
+                    context,
+                    _record,
+                    _request,
+                    _decision_time,
+                    plan,
+                    _ledger_state,
+                ) = self._validated_razorpay_execution(reservation.market_id)
+                if plan.execution_id != ingress.event.execution_id:
+                    return self._razorpay_payment_state_failure(
+                        code="EXECUTION_BINDING_MISMATCH",
+                        message="Authenticated Razorpay webhook execution binding failed.",
+                        market_id=market_id,
+                        execution_id=ingress.event.execution_id,
+                        provider_order_id=ingress.event.provider_order_id,
+                        provider_payment_id=ingress.event.provider_payment_id,
+                    )
+                snapshot = derive_razorpay_payment_state_v1(
+                    certificate=context.certificate,
+                    trusted_signing_identities=context.trusted_identities,
+                    execution_id=ingress.event.execution_id,
+                    expected_razorpay_account_id=verification_config.expected_account_id,
+                    ledger=ledger,
+                )
+                return self._razorpay_payment_state_presentation(
+                    market_id=market_id,
+                    snapshot=snapshot,
+                    webhook_disposition=ingress.disposition.value,
+                )
+        except RazorpayWebhookError as error:
+            return self._razorpay_payment_state_failure(
+                code=error.code.value,
+                message="Razorpay webhook authentication or validation failed closed.",
+            )
+        except PaymentStateError as error:
+            return self._razorpay_payment_state_failure(
+                code=error.code.value,
+                message="Authenticated Razorpay payment evidence failed deterministic replay.",
+            )
+        except ProductServiceError as error:
+            return self._razorpay_payment_state_failure(
+                code=error.code.value,
+                message="Razorpay payment execution context failed closed.",
+            )
+        except (OSError, PersistenceError, TypeError, ValueError):
+            return self._razorpay_payment_state_failure(
+                code="RAZORPAY_PAYMENT_STATE_FAILED",
+                message="Razorpay payment state failed closed.",
+            )
+
+    def get_market_razorpay_payment_state(
+        self,
+        market_id: str,
+        *,
+        environment: Mapping[str, str] | None = None,
+    ) -> dict[str, object]:
+        (
+            validated_market_id,
+            context,
+            _record,
+            _request,
+            _decision_time,
+            plan,
+            ledger_state,
+        ) = self._validated_razorpay_execution(market_id)
+        if ledger_state.provider_order_id is None:
+            return self._razorpay_payment_state_unavailable(
+                code="RAZORPAY_PAYMENT_NOT_AVAILABLE",
+                message="No persisted Razorpay provider order is available.",
+                market_id=validated_market_id,
+                execution_id=plan.execution_id,
+            )
+        verification_config = self._razorpay_webhook_config(environment)
+        if verification_config is None:
+            return self._razorpay_payment_state_unavailable(
+                code="RAZORPAY_TEST_WEBHOOK_CONFIGURATION_UNAVAILABLE",
+                message="Razorpay Test Mode webhook configuration is unavailable.",
+                market_id=validated_market_id,
+                execution_id=plan.execution_id,
+                provider_order_id=ledger_state.provider_order_id,
+            )
+        try:
+            with SQLiteFinancialLedgerV1(str(self._financial_ledger_path)) as ledger:
+                snapshot = derive_razorpay_payment_state_v1(
+                    certificate=context.certificate,
+                    trusted_signing_identities=context.trusted_identities,
+                    execution_id=plan.execution_id,
+                    expected_razorpay_account_id=verification_config.expected_account_id,
+                    ledger=ledger,
+                )
+        except PaymentStateError as error:
+            return self._razorpay_payment_state_failure(
+                code=error.code.value,
+                message="Razorpay payment evidence failed deterministic replay.",
+                market_id=validated_market_id,
+                execution_id=plan.execution_id,
+                provider_order_id=ledger_state.provider_order_id,
+            )
+        except (OSError, PersistenceError, TypeError, ValueError):
+            return self._razorpay_payment_state_failure(
+                code="RAZORPAY_PAYMENT_STATE_FAILED",
+                message="Razorpay payment state failed closed.",
+                market_id=validated_market_id,
+                execution_id=plan.execution_id,
+                provider_order_id=ledger_state.provider_order_id,
+            )
+        return self._razorpay_payment_state_presentation(
+            market_id=validated_market_id,
+            snapshot=snapshot,
         )
 
     def authorize_market_execution(self, market_id: str) -> dict[str, object]:

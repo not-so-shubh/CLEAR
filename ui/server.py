@@ -47,6 +47,10 @@ _PRODUCT_AUTHORITY_AUTHORIZE_PATH = re.compile(
 _PRODUCT_AUTHORITY_RAZORPAY_ORDER_PATH = re.compile(
     r"/api/product-v1/markets/([^/]+)/authority/razorpay-order"
 )
+_PRODUCT_RAZORPAY_WEBHOOK_PATH = "/api/product-v1/razorpay/webhook"
+_PRODUCT_AUTHORITY_RAZORPAY_PAYMENT_STATE_PATH = re.compile(
+    r"/api/product-v1/markets/([^/]+)/authority/razorpay-payment-state"
+)
 _PRODUCT_AUTHORITY_TAMPER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/authority/tamper")
 _PRODUCT_OFFER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/offers")
 _PRODUCT_CLOSE_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/close")
@@ -209,6 +213,14 @@ class _Handler(BaseHTTPRequestHandler):
     def _handle_product_post(self, requested: str, body: bytes) -> None:
         try:
             service = ProductService()
+            if requested == _PRODUCT_RAZORPAY_WEBHOOK_PATH:
+                payload = service.record_razorpay_webhook(
+                    body,
+                    signature_header=self.headers.get("X-Razorpay-Signature", ""),
+                    event_id_header=self.headers.get("x-razorpay-event-id", ""),
+                )
+                self._send_json(payload, _live_result_status(payload))
+                return
             if requested == "/api/product-v1/merchants":
                 payload = service.create_merchant(parse_product_json(body, CreateMerchantRequest))
                 self._send_json(payload, HTTPStatus.CREATED)
@@ -434,6 +446,30 @@ class _Handler(BaseHTTPRequestHandler):
                     )
                     return
                 self._send_json(payload)
+                return
+            payment_state_match = _PRODUCT_AUTHORITY_RAZORPAY_PAYMENT_STATE_PATH.fullmatch(
+                requested
+            )
+            if payment_state_match is not None:
+                try:
+                    payload = ProductService().get_market_razorpay_payment_state(
+                        payment_state_match.group(1)
+                    )
+                except ProductServiceError as error:
+                    self._send_product_error(error)
+                    return
+                except Exception:
+                    self._send_json(
+                        {
+                            "error": {
+                                "code": "PRODUCT_INTERNAL_FAILURE",
+                                "message": "Product request failed closed.",
+                            }
+                        },
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    return
+                self._send_json(payload, _live_result_status(payload))
                 return
             authority_match = _PRODUCT_AUTHORITY_PATH.fullmatch(requested)
             if authority_match is not None:

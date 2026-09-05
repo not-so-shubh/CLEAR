@@ -603,7 +603,7 @@ def test_tamper_control_remains_provider_free_and_endpoint_has_no_transfer_path(
         "PAYMENT_CAPTURED",
     ):
         assert forbidden not in endpoint_block
-        assert forbidden not in product_service
+    assert "create_or_reconcile_razorpay_test_transfers_v1" not in product_service
     assert "capture" not in endpoint_block
 
 
