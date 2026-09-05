@@ -270,7 +270,7 @@ def fingerprint_invalid_candidate(output_text: str) -> dict[str, object] | None:
         return None
 
 
-def configured_product_ai(
+def configured_external_product_ai(
     environment: Mapping[str, str],
     provider: AIProvider | None = None,
 ) -> tuple[ProductAIConfig, AIProvider]:
@@ -312,5 +312,12 @@ def configured_product_ai(
         )
     except (ValueError, ValidationError):
         raise ProductAIConfigurationError from None
-    selected_provider = live_provider if provider is None else provider
+    return config, live_provider if provider is None else provider
+
+
+def configured_product_ai(
+    environment: Mapping[str, str],
+    provider: AIProvider | None = None,
+) -> tuple[ProductAIConfig, AIProvider]:
+    config, selected_provider = configured_external_product_ai(environment, provider)
     return config, BuyerIntentPromptGuardProvider(selected_provider)

@@ -26,9 +26,22 @@
   const validationState = document.querySelector('[data-buyer-field="validation-state"]');
   const diagnosticCode = document.querySelector('[data-buyer-field="diagnostic-code"]');
   const candidateDiagnostic = document.querySelector('[data-buyer-field="candidate-diagnostic"]');
+  const merchantSelect = document.querySelector("#merchant-select");
+  const merchantProfile = document.querySelector("#merchant-profile");
+  const merchantAttributeList = document.querySelector("#merchant-attribute-list");
+  const merchantMarketList = document.querySelector("#merchant-market-list");
+  const merchantMarketReview = document.querySelector("#merchant-market-review");
+  const requestMerchantProposal = document.querySelector("#request-merchant-proposal");
+  const submitMerchantProposal = document.querySelector("#submit-merchant-proposal");
+  const merchantActionStatus = document.querySelector("#merchant-action-status");
 
   let currentMarketId = null;
   let running = false;
+  let currentMerchantId = null;
+  let currentMerchantMarketId = null;
+  let currentMerchantInbox = null;
+  let merchantRunning = false;
+  let merchantInboxRequest = 0;
 
   const setText = (selector, value) => {
     const target = document.querySelector(selector);
@@ -37,6 +50,7 @@
 
   const viewFromHash = () => {
     if (["#buyer", "#buyer-workspace"].includes(window.location.hash)) return "buyer";
+    if (["#merchant", "#merchant-workspace"].includes(window.location.hash)) return "merchant";
     if (["#evidence", "#top", "#demo", "#supporting", "#architecture"].includes(window.location.hash)) {
       return "evidence";
     }
@@ -44,7 +58,7 @@
   };
 
   const setView = (view, { hashMode = "replace", preserveHash = false } = {}) => {
-    const selected = view === "evidence" ? "evidence" : "buyer";
+    const selected = ["buyer", "merchant", "evidence"].includes(view) ? view : "buyer";
     document.body.dataset.view = selected;
     viewPanels.forEach((panel) => {
       panel.hidden = panel.dataset.appView !== selected;
@@ -55,7 +69,12 @@
     if (evidenceNav) evidenceNav.hidden = selected !== "evidence";
     if (menuToggle) menuToggle.hidden = selected !== "evidence";
     if (skipLink instanceof HTMLAnchorElement) {
-      skipLink.href = selected === "evidence" ? "#demo" : "#buyer-workspace";
+      skipLink.href =
+        selected === "evidence"
+          ? "#demo"
+          : selected === "merchant"
+            ? "#merchant-workspace"
+            : "#buyer-workspace";
       skipLink.textContent = selected === "evidence" ? "Skip to demo" : "Skip to workspace";
     }
     try {
@@ -87,7 +106,7 @@
     }
   })();
   const initialHashView = viewFromHash();
-  setView(initialHashView || (initialView === "evidence" ? "evidence" : "buyer"), {
+  setView(initialHashView || (["merchant", "evidence"].includes(initialView) ? initialView : "buyer"), {
     preserveHash: initialHashView !== null,
   });
 
@@ -173,6 +192,37 @@
     });
   };
 
+  const renderMerchantOptions = (merchants) => {
+    if (!(merchantSelect instanceof HTMLSelectElement)) return;
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select a merchant";
+    const options = [placeholder];
+    if (Array.isArray(merchants)) {
+      merchants.forEach((merchant) => {
+        const option = document.createElement("option");
+        option.value = String(merchant.merchant_id);
+        option.textContent = `${String(merchant.display_name)} · ${String(merchant.merchant_sku)}`;
+        options.push(option);
+      });
+    }
+    merchantSelect.replaceChildren(...options);
+    let rememberedMerchantId = null;
+    try {
+      rememberedMerchantId = window.localStorage.getItem("clear-product-merchant-id");
+    } catch (_error) {
+      // The server-backed workspace remains available without browser storage.
+    }
+    if (
+      rememberedMerchantId &&
+      Array.isArray(merchants) &&
+      merchants.some((merchant) => String(merchant.merchant_id) === rememberedMerchantId)
+    ) {
+      merchantSelect.value = rememberedMerchantId;
+      loadMerchantInbox(rememberedMerchantId);
+    }
+  };
+
   const loadMerchants = async () => {
     try {
       const response = await requestJSON("/api/product-v1/merchants", { headers: {} });
@@ -180,9 +230,12 @@
         throw new Error("Runtime merchant discovery failed closed.");
       }
       renderMerchants(response.payload.merchants);
+      renderMerchantOptions(response.payload.merchants);
     } catch (error) {
       renderMerchants([]);
+      renderMerchantOptions([]);
       if (actionStatus) actionStatus.textContent = error.message;
+      if (merchantActionStatus) merchantActionStatus.textContent = error.message;
     }
   };
 
@@ -322,6 +375,406 @@
       list.append(item);
     });
   };
+
+  const setMerchantText = (field, value) => {
+    const target = document.querySelector(`[data-merchant-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const setMerchantMarketText = (field, value) => {
+    const target = document.querySelector(`[data-merchant-market-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const setMerchantProposalText = (field, value) => {
+    const target = document.querySelector(`[data-merchant-proposal-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const renderMerchantAttributes = (attributes) => {
+    if (!merchantAttributeList) return;
+    merchantAttributeList.replaceChildren();
+    if (!Array.isArray(attributes) || attributes.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No catalog attributes are persisted for this SKU.";
+      merchantAttributeList.append(empty);
+      return;
+    }
+    attributes.forEach((attribute) => {
+      const item = document.createElement("div");
+      const key = document.createElement("strong");
+      const value = document.createElement("span");
+      const provenance = document.createElement("small");
+      key.textContent = String(attribute.attribute_key);
+      value.textContent = `${String(attribute.value_type)} · ${String(attribute.value)}`;
+      provenance.textContent = String(attribute.provenance);
+      item.append(key, value, provenance);
+      merchantAttributeList.append(item);
+    });
+  };
+
+  const renderMerchantProfile = (merchant) => {
+    if (!merchant || typeof merchant !== "object") {
+      if (merchantProfile) merchantProfile.hidden = true;
+      return;
+    }
+    setMerchantText("display-name", merchant.display_name);
+    setMerchantText("product-name", merchant.product_display_name);
+    setMerchantText("merchant-sku", merchant.merchant_sku);
+    setMerchantText("inventory", merchant.inventory_quantity);
+    setMerchantText("minimum-price", merchant.minimum_allowed_unit_price_paise);
+    setMerchantText("maximum-quantity", merchant.max_quantity_per_offer);
+    renderMerchantAttributes(merchant.attributes);
+    if (merchantProfile) merchantProfile.hidden = false;
+  };
+
+  const setMerchantRunning = (value) => {
+    merchantRunning = value;
+    if (merchantSelect instanceof HTMLSelectElement) merchantSelect.disabled = value;
+    if (requestMerchantProposal instanceof HTMLButtonElement) {
+      requestMerchantProposal.disabled = value;
+    }
+    if (submitMerchantProposal instanceof HTMLButtonElement) {
+      submitMerchantProposal.disabled = value;
+    }
+  };
+
+  const clearMerchantSelection = () => {
+    currentMerchantMarketId = null;
+    if (merchantMarketReview) merchantMarketReview.hidden = true;
+    merchantMarketList?.querySelectorAll("button").forEach((button) => {
+      button.setAttribute("aria-pressed", "false");
+    });
+  };
+
+  const renderMerchantProposalLines = (lines, labels) => {
+    const target = document.querySelector('[data-merchant-proposal-field="lines"]');
+    if (!target) return;
+    target.replaceChildren();
+    if (!Array.isArray(lines)) return;
+    lines.forEach((line) => {
+      const item = document.createElement("dl");
+      labels.forEach(([label, field]) => {
+        if (!(field in line)) return;
+        const fact = document.createElement("div");
+        const term = document.createElement("dt");
+        const detail = document.createElement("dd");
+        term.textContent = label;
+        detail.textContent = String(line[field]);
+        fact.append(term, detail);
+        item.append(fact);
+      });
+      target.append(item);
+    });
+  };
+
+  const renderMerchantProposal = (proposal) => {
+    const provider = document.querySelector('[data-merchant-proposal-field="provider"]');
+    const safeProposal = proposal && typeof proposal === "object" ? proposal : {};
+    const state = String(safeProposal.state || "NO_PROPOSAL");
+    if (provider) provider.hidden = true;
+    renderMerchantProposalLines([], []);
+    if (requestMerchantProposal instanceof HTMLButtonElement) requestMerchantProposal.hidden = true;
+    if (submitMerchantProposal instanceof HTMLButtonElement) submitMerchantProposal.hidden = true;
+
+    if (state === "NO_PROPOSAL") {
+      setMerchantProposalText("title", "No proposal");
+      setMerchantProposalText("state", "READY");
+      setMerchantProposalText(
+        "message",
+        "AI is invoked only when the merchant explicitly requests a proposal.",
+      );
+      if (requestMerchantProposal instanceof HTMLButtonElement) {
+        requestMerchantProposal.hidden = false;
+      }
+      return;
+    }
+
+    const providerInvoked = safeProposal.provider_invoked === true;
+    if (provider) {
+      provider.hidden = !providerInvoked;
+    }
+    if (providerInvoked) {
+      setMerchantProposalText("provider-name", safeProposal.provider_name || "UNAVAILABLE");
+      setMerchantProposalText("model", safeProposal.model || "UNAVAILABLE");
+    }
+    if (state === "PROPOSING") {
+      setMerchantProposalText("title", "Proposal generation claimed");
+      setMerchantProposalText("state", "PROPOSING");
+      setMerchantProposalText(
+        "message",
+        "The server has claimed this proposal action. No offer has been submitted.",
+      );
+      return;
+    }
+    if (state === "NO_OFFER") {
+      setMerchantProposalText("title", "Valid no_offer");
+      setMerchantProposalText("state", "VALID NO_OFFER");
+      setMerchantProposalText(
+        "message",
+        "The strict merchant-AI result is final for this market. No offer was submitted and no signing occurred.",
+      );
+      return;
+    }
+    if (state === "PROPOSED") {
+      const lines = safeProposal.candidate?.lines;
+      setMerchantProposalText("title", "Advisory only");
+      setMerchantProposalText("state", "PROPOSED · NOT SUBMITTED");
+      setMerchantProposalText(
+        "message",
+        "AI PROPOSAL · ADVISORY ONLY. AI DID NOT SUBMIT AN OFFER.",
+      );
+      renderMerchantProposalLines(lines, [
+        ["SKU ID", "sku_id"],
+        ["PROPOSED QUANTITY", "proposed_quantity"],
+        ["PROPOSED UNIT PRICE · PAISE", "proposed_unit_price_paise"],
+      ]);
+      if (submitMerchantProposal instanceof HTMLButtonElement) {
+        submitMerchantProposal.hidden = false;
+      }
+      return;
+    }
+    if (state === "SUBMITTED") {
+      setMerchantProposalText("title", "Authenticated offer submitted");
+      setMerchantProposalText("state", "SIGNED · AUTHENTICATED · SUBMITTED");
+      setMerchantProposalText(
+        "message",
+        "AUTHENTICATED OFFER SUBMITTED. MARKET NOT CLEARED.",
+      );
+      renderMerchantProposalLines(safeProposal.offer ? [safeProposal.offer] : [], [
+        ["OFFER ID", "offer_id"],
+        ["QUANTITY", "proposed_quantity"],
+        ["UNIT PRICE · PAISE", "proposed_unit_price_paise"],
+        ["RECEIVED", "received_at"],
+      ]);
+      return;
+    }
+    setMerchantProposalText("title", "State unavailable");
+    setMerchantProposalText("state", "FAILED CLOSED");
+    setMerchantProposalText("message", "The server returned an unsupported proposal state.");
+  };
+
+  const selectMerchantMarket = (market) => {
+    currentMerchantMarketId = String(market.market_id);
+    setMerchantMarketText("state", `${String(market.market_state)} · FROZEN`);
+    setMerchantMarketText("market-id", market.market_id);
+    setMerchantMarketText("requested-quantity", market.requested_quantity);
+    setMerchantMarketText("minimum-quantity", market.minimum_acceptable_quantity);
+    setMerchantMarketText("max-suppliers", market.max_winners);
+    setMerchantMarketText("budget", market.max_total_payment_paise);
+    renderRuleList(
+      '[data-merchant-market-field="hard-rules"]',
+      market.hard_constraints,
+    );
+    renderRuleList(
+      '[data-merchant-market-field="soft-rules"]',
+      market.soft_preferences,
+    );
+    renderMerchantProposal(market.proposal);
+    merchantMarketList?.querySelectorAll("button").forEach((button) => {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.marketId === currentMerchantMarketId),
+      );
+    });
+    if (merchantMarketReview) merchantMarketReview.hidden = false;
+    if (merchantActionStatus) {
+      merchantActionStatus.textContent = "State restored from the authoritative merchant market inbox.";
+    }
+    try {
+      window.localStorage.setItem("clear-product-merchant-market-id", currentMerchantMarketId);
+    } catch (_error) {
+      // The selected market remains usable without browser storage.
+    }
+  };
+
+  const renderMerchantMarkets = (markets) => {
+    if (!merchantMarketList) return;
+    merchantMarketList.replaceChildren();
+    if (!Array.isArray(markets) || markets.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No eligible open markets are available for this merchant.";
+      merchantMarketList.append(empty);
+      clearMerchantSelection();
+      return;
+    }
+    markets.forEach((market) => {
+      const button = document.createElement("button");
+      const title = document.createElement("strong");
+      const detail = document.createElement("small");
+      button.type = "button";
+      button.className = "merchant-market-choice";
+      button.dataset.marketId = String(market.market_id);
+      button.setAttribute("aria-pressed", "false");
+      title.textContent = String(market.market_id);
+      detail.textContent = `${String(market.requested_quantity)} REQUESTED · DEADLINE ${String(market.offer_deadline)}`;
+      button.append(title, detail);
+      button.addEventListener("click", () => selectMerchantMarket(market));
+      merchantMarketList.append(button);
+    });
+  };
+
+  const loadMerchantInbox = async (merchantId, preferredMarketId = null) => {
+    const requestNumber = ++merchantInboxRequest;
+    currentMerchantId = merchantId;
+    currentMerchantInbox = null;
+    clearMerchantSelection();
+    if (merchantActionStatus) merchantActionStatus.textContent = "Loading server-filtered open markets.";
+    try {
+      const response = await requestJSON(
+        `/api/product-v1/merchants/${encodeURIComponent(merchantId)}/markets`,
+        { headers: {} },
+      );
+      if (
+        requestNumber !== merchantInboxRequest ||
+        currentMerchantId !== merchantId
+      ) {
+        return;
+      }
+      if (
+        !response.ok ||
+        !response.payload.merchant ||
+        !Array.isArray(response.payload.markets)
+      ) {
+        throw new Error("The authoritative merchant inbox could not be loaded.");
+      }
+      currentMerchantInbox = response.payload;
+      renderMerchantProfile(response.payload.merchant);
+      renderMerchantMarkets(response.payload.markets);
+      let rememberedMarketId = preferredMarketId;
+      if (!rememberedMarketId) {
+        try {
+          rememberedMarketId = window.localStorage.getItem("clear-product-merchant-market-id");
+        } catch (_error) {
+          // Market selection remains explicit when storage is unavailable.
+        }
+      }
+      const rememberedMarket = response.payload.markets.find(
+        (market) => String(market.market_id) === rememberedMarketId,
+      );
+      if (rememberedMarket) {
+        selectMerchantMarket(rememberedMarket);
+      } else {
+        try {
+          window.localStorage.removeItem("clear-product-merchant-market-id");
+        } catch (_error) {
+          // No browser storage mutation is required for authority correctness.
+        }
+        if (merchantActionStatus) {
+          merchantActionStatus.textContent = "Select an eligible open market. No AI call has occurred.";
+        }
+      }
+    } catch (error) {
+      if (requestNumber !== merchantInboxRequest) return;
+      currentMerchantInbox = null;
+      if (merchantProfile) merchantProfile.hidden = true;
+      renderMerchantMarkets([]);
+      if (merchantActionStatus) {
+        merchantActionStatus.textContent =
+          error instanceof Error ? error.message : "Merchant inbox loading failed closed.";
+      }
+    }
+  };
+
+  const renderMerchantActionFailure = (payload) => {
+    const error = payload && typeof payload === "object" ? payload.error : null;
+    const code = String(payload?.code || error?.code || "PRODUCT_REQUEST_FAILED");
+    const messageText = String(
+      payload?.message || error?.message || "The merchant action failed closed.",
+    );
+    setMerchantProposalText("state", code);
+    setMerchantProposalText("message", messageText);
+    if (merchantActionStatus) {
+      merchantActionStatus.textContent = `${code} · No browser authority was inferred.`;
+    }
+  };
+
+  if (merchantSelect instanceof HTMLSelectElement) {
+    merchantSelect.addEventListener("change", () => {
+      const merchantId = merchantSelect.value;
+      ++merchantInboxRequest;
+      currentMerchantId = merchantId || null;
+      currentMerchantInbox = null;
+      clearMerchantSelection();
+      if (!merchantId) {
+        if (merchantProfile) merchantProfile.hidden = true;
+        renderMerchantMarkets([]);
+        try {
+          window.localStorage.removeItem("clear-product-merchant-id");
+          window.localStorage.removeItem("clear-product-merchant-market-id");
+        } catch (_error) {
+          // Clearing the server-independent convenience state is optional.
+        }
+        if (merchantActionStatus) {
+          merchantActionStatus.textContent = "Select a runtime merchant. No AI call has occurred.";
+        }
+        return;
+      }
+      try {
+        window.localStorage.setItem("clear-product-merchant-id", merchantId);
+      } catch (_error) {
+        // The server-backed workspace remains available without browser storage.
+      }
+      loadMerchantInbox(merchantId);
+    });
+  }
+
+  if (requestMerchantProposal instanceof HTMLButtonElement) {
+    requestMerchantProposal.addEventListener("click", async () => {
+      if (merchantRunning || !currentMerchantId || !currentMerchantMarketId) return;
+      const merchantId = currentMerchantId;
+      const marketId = currentMerchantMarketId;
+      setMerchantRunning(true);
+      if (merchantActionStatus) {
+        merchantActionStatus.textContent = "RUNNING · USER INITIATED · ONE MERCHANT AI CALL";
+      }
+      try {
+        const response = await requestJSON(
+          `/api/product-v1/merchants/${encodeURIComponent(merchantId)}/markets/${encodeURIComponent(marketId)}/propose`,
+          { method: "POST", body: "{}" },
+        );
+        if (!response.ok || response.payload.result !== "SUCCESS") {
+          renderMerchantActionFailure(response.payload);
+          return;
+        }
+        await loadMerchantInbox(merchantId, marketId);
+      } catch (error) {
+        renderMerchantActionFailure(productErrorPayload(error));
+      } finally {
+        setMerchantRunning(false);
+      }
+    });
+  }
+
+  if (submitMerchantProposal instanceof HTMLButtonElement) {
+    submitMerchantProposal.addEventListener("click", async () => {
+      if (merchantRunning || !currentMerchantId || !currentMerchantMarketId) return;
+      const merchantId = currentMerchantId;
+      const marketId = currentMerchantMarketId;
+      setMerchantRunning(true);
+      if (merchantActionStatus) {
+        merchantActionStatus.textContent =
+          "VALIDATING · SIGNING · AUTHENTICATING · NO AI CALL";
+      }
+      try {
+        const response = await requestJSON(
+          `/api/product-v1/merchants/${encodeURIComponent(merchantId)}/markets/${encodeURIComponent(marketId)}/submit-proposal`,
+          { method: "POST", body: "{}" },
+        );
+        if (!response.ok || response.payload.result !== "SUCCESS") {
+          renderMerchantActionFailure(response.payload);
+          return;
+        }
+        await loadMerchantInbox(merchantId, marketId);
+      } catch (error) {
+        renderMerchantActionFailure(productErrorPayload(error));
+      } finally {
+        setMerchantRunning(false);
+      }
+    });
+  }
 
   const renderInterpretationFailure = (payload) => {
     currentMarketId = null;

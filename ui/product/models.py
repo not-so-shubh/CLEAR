@@ -5,8 +5,21 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from clear_market.commerce import AttributeValue, AttributeValueType
+from clear_market.commerce.catalog import MAX_ATTRIBUTES_PER_SKU
+from clear_market.commerce.primitives import AttributeKey
 from clear_market.domain import MAX_MONEY_PAISE, MAX_QUANTITY, MAX_SELLERS, MIN_SELLERS
 
 _MAX_TEXT_CHARS = 256
@@ -15,12 +28,34 @@ _MAX_BUYER_TEXT_BYTES = 32_768
 type PositiveQuantityInput = Annotated[int, Field(strict=True, ge=1, le=MAX_QUANTITY)]
 type MoneyInput = Annotated[int, Field(strict=True, ge=0, le=MAX_MONEY_PAISE)]
 type WinnerCountInput = Annotated[int, Field(strict=True, ge=1, le=MAX_SELLERS)]
+type AttributeScalarInput = StrictStr | StrictInt | StrictBool
 
 
 def _validate_text(value: str) -> str:
     if not value or len(value) > _MAX_TEXT_CHARS or "\x00" in value:
         raise ValueError("text is outside its accepted bound")
     return value
+
+
+class CreateMerchantAttributeRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    attribute_key: AttributeKey
+    value_type: str
+    value: AttributeScalarInput
+    provenance: str
+
+    @model_validator(mode="after")
+    def _validate_attribute(self) -> CreateMerchantAttributeRequest:
+        if self.value_type not in {value.value for value in AttributeValueType}:
+            raise ValueError("unsupported attribute value type")
+        if self.provenance not in {"CLAIMED", "ATTESTED"}:
+            raise ValueError("unsupported product attribute provenance")
+        AttributeValue(
+            value_type=AttributeValueType(self.value_type),
+            value=self.value,
+        )
+        return self
 
 
 class CreateMerchantRequest(BaseModel):
@@ -33,11 +68,26 @@ class CreateMerchantRequest(BaseModel):
     unit_cost_basis_paise: MoneyInput
     minimum_margin_paise: MoneyInput
     max_quantity_per_offer: PositiveQuantityInput
+    attributes: Annotated[
+        list[CreateMerchantAttributeRequest],
+        Field(default_factory=list, max_length=MAX_ATTRIBUTES_PER_SKU),
+    ]
 
     @field_validator("display_name", "product_display_name")
     @classmethod
     def _bounded_display_text(cls, value: str) -> str:
         return _validate_text(value)
+
+    @field_validator("attributes")
+    @classmethod
+    def _unique_attribute_keys(
+        cls,
+        value: list[CreateMerchantAttributeRequest],
+    ) -> list[CreateMerchantAttributeRequest]:
+        keys = [attribute.attribute_key for attribute in value]
+        if len(keys) != len(set(keys)):
+            raise ValueError("merchant attribute keys must be unique")
+        return value
 
 
 class CreateMarketRequest(BaseModel):

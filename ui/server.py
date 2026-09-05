@@ -43,6 +43,13 @@ _PRODUCT_OFFER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/offers")
 _PRODUCT_CLOSE_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/close")
 _PRODUCT_DRAFT_INTERPRET_PATH = re.compile(r"/api/product-v1/buyer-drafts/([^/]+)/interpret")
 _PRODUCT_DRAFT_FREEZE_PATH = re.compile(r"/api/product-v1/buyer-drafts/([^/]+)/freeze")
+_PRODUCT_MERCHANT_MARKETS_PATH = re.compile(r"/api/product-v1/merchants/([^/]+)/markets")
+_PRODUCT_MERCHANT_PROPOSE_PATH = re.compile(
+    r"/api/product-v1/merchants/([^/]+)/markets/([^/]+)/propose"
+)
+_PRODUCT_MERCHANT_SUBMIT_PATH = re.compile(
+    r"/api/product-v1/merchants/([^/]+)/markets/([^/]+)/submit-proposal"
+)
 
 _PRODUCT_ERROR_STATUSES = {
     ProductErrorCode.INVALID_REQUEST: HTTPStatus.BAD_REQUEST,
@@ -57,6 +64,8 @@ _PRODUCT_ERROR_STATUSES = {
     ProductErrorCode.PERSISTED_DATA_INVALID: HTTPStatus.INTERNAL_SERVER_ERROR,
     ProductErrorCode.DRAFT_NOT_INTERPRETABLE: HTTPStatus.CONFLICT,
     ProductErrorCode.DRAFT_NOT_FREEZABLE: HTTPStatus.CONFLICT,
+    ProductErrorCode.PROPOSAL_NOT_AVAILABLE: HTTPStatus.CONFLICT,
+    ProductErrorCode.PROPOSAL_NOT_SUBMITTABLE: HTTPStatus.CONFLICT,
 }
 
 
@@ -202,6 +211,48 @@ class _Handler(BaseHTTPRequestHandler):
                 )
                 self._send_json(payload, HTTPStatus.CREATED)
                 return
+            propose_match = _PRODUCT_MERCHANT_PROPOSE_PATH.fullmatch(requested)
+            if propose_match is not None:
+                if body:
+                    parse_product_json(body, CloseMarketRequest)
+                if not _LIVE_AI_EVIDENCE_LOCK.acquire(blocking=False):
+                    self._send_json(
+                        {
+                            "result": "UNAVAILABLE",
+                            "market_id": propose_match.group(2),
+                            "merchant_id": propose_match.group(1),
+                            "state": "NO_PROPOSAL",
+                            "authority": "ADVISORY_ONLY",
+                            "provider_protocol": "OPENAI_COMPATIBLE",
+                            "provider_identity": ("EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER"),
+                            "provider_name": None,
+                            "model": None,
+                            "provider_invoked": False,
+                            "code": "LIVE_AI_BUSY",
+                            "message": "Another current-run AI request is already running.",
+                        },
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                try:
+                    payload = service.propose_merchant_offer(
+                        propose_match.group(1),
+                        propose_match.group(2),
+                    )
+                finally:
+                    _LIVE_AI_EVIDENCE_LOCK.release()
+                self._send_json(payload, _live_result_status(payload))
+                return
+            submit_match = _PRODUCT_MERCHANT_SUBMIT_PATH.fullmatch(requested)
+            if submit_match is not None:
+                if body:
+                    parse_product_json(body, CloseMarketRequest)
+                payload = service.submit_merchant_proposal(
+                    submit_match.group(1),
+                    submit_match.group(2),
+                )
+                self._send_json(payload, HTTPStatus.CREATED)
+                return
             interpret_match = _PRODUCT_DRAFT_INTERPRET_PATH.fullmatch(requested)
             if interpret_match is not None:
                 if body:
@@ -293,6 +344,28 @@ class _Handler(BaseHTTPRequestHandler):
                         },
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                     )
+                return
+            merchant_markets_match = _PRODUCT_MERCHANT_MARKETS_PATH.fullmatch(requested)
+            if merchant_markets_match is not None:
+                try:
+                    payload = ProductService().list_merchant_markets(
+                        merchant_markets_match.group(1)
+                    )
+                except ProductServiceError as error:
+                    self._send_product_error(error)
+                    return
+                except Exception:
+                    self._send_json(
+                        {
+                            "error": {
+                                "code": "PRODUCT_INTERNAL_FAILURE",
+                                "message": "Product request failed closed.",
+                            }
+                        },
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    return
+                self._send_json(payload)
                 return
             market_match = _PRODUCT_MARKET_PATH.fullmatch(requested)
             if market_match is None:

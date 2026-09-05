@@ -1,4 +1,4 @@
-/* Phase 28A2 buyer workspace. Evidence view styles remain in styles.css. */
+/* Product workspaces. Evidence view styles remain in styles.css. */
 .app-switch {
   display: inline-flex;
   gap: 3px;
@@ -26,7 +26,12 @@ body[data-view="buyer"] .site-header {
   border-bottom-color: var(--line);
 }
 
-.buyer-shell {
+body[data-view="merchant"] .site-header {
+  border-bottom-color: var(--line);
+}
+
+.buyer-shell,
+.merchant-shell {
   width: min(var(--max), calc(100% - 2 * var(--gutter)));
   min-height: calc(100vh - 97px);
   margin-inline: auto;
@@ -114,7 +119,8 @@ body[data-view="buyer"] .site-header {
 }
 
 .buyer-field textarea,
-.buyer-field input {
+.buyer-field input,
+.buyer-field select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 0;
@@ -130,7 +136,8 @@ body[data-view="buyer"] .site-header {
 }
 
 .buyer-field textarea:focus,
-.buyer-field input:focus {
+.buyer-field input:focus,
+.buyer-field select:focus {
   border-color: var(--text);
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -298,6 +305,352 @@ body[data-view="buyer"] .site-header {
   padding-top: 20px;
   border-top: 1px solid #3c4234;
   font-size: 12px;
+}
+
+.merchant-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, .5fr);
+  gap: clamp(42px, 7vw, 110px);
+  align-items: end;
+  padding-bottom: clamp(45px, 5vw, 70px);
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-intro h1 {
+  margin: 0;
+  font-size: clamp(50px, 6.7vw, 104px);
+}
+
+.merchant-intro h1 em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.merchant-intro-copy {
+  padding-bottom: 9px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.merchant-work-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, .4fr);
+  gap: clamp(45px, 7vw, 110px);
+  padding: 68px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-control-column,
+.merchant-profile,
+.merchant-inbox {
+  min-width: 0;
+}
+
+.merchant-profile,
+.merchant-inbox {
+  margin-top: 54px;
+  padding-top: 48px;
+  border-top: 1px solid var(--line);
+}
+
+.merchant-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.merchant-facts > div {
+  min-height: 91px;
+  padding: 17px 18px 17px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-facts > div:nth-child(even) {
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+
+.merchant-facts dt,
+.merchant-facts dd,
+.merchant-attribute-list strong,
+.merchant-attribute-list span,
+.merchant-attribute-list small {
+  font: 11px/1.55 var(--mono);
+}
+
+.merchant-facts dt {
+  color: var(--muted);
+}
+
+.merchant-facts dd {
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.merchant-attributes {
+  margin-top: 31px;
+}
+
+.merchant-attribute-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+}
+
+.merchant-attribute-list > div {
+  min-width: 0;
+  padding: 16px 16px 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-attribute-list > div + div {
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+}
+
+.merchant-attribute-list strong,
+.merchant-attribute-list span,
+.merchant-attribute-list small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.merchant-attribute-list strong {
+  font-size: 13px;
+  font-weight: 570;
+}
+
+.merchant-attribute-list span,
+.merchant-attribute-list small {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.merchant-attribute-list small {
+  color: var(--green);
+}
+
+.merchant-market-list {
+  display: grid;
+  gap: 9px;
+}
+
+.merchant-market-choice {
+  display: grid;
+  width: 100%;
+  min-height: 78px;
+  padding: 15px 18px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.merchant-market-choice:hover,
+.merchant-market-choice[aria-pressed="true"] {
+  border-color: var(--text);
+  background: #fff;
+}
+
+.merchant-market-choice[aria-pressed="true"] {
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.merchant-market-choice strong,
+.merchant-market-choice small {
+  display: block;
+  overflow-wrap: anywhere;
+  font: 11px/1.5 var(--mono);
+}
+
+.merchant-market-choice small {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.merchant-authority-map {
+  align-self: start;
+  padding: 27px;
+  background: #191b17;
+  color: #f3f5e9;
+}
+
+.merchant-authority-map .micro-label,
+.merchant-authority-map small,
+.merchant-authority-map > p:last-child {
+  color: #aaaf9e;
+}
+
+.merchant-authority-map ol {
+  margin: 22px 0 27px;
+  padding: 0;
+  list-style: none;
+}
+
+.merchant-authority-map li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 15px;
+  min-height: 76px;
+}
+
+.merchant-authority-map li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 28px;
+  bottom: 7px;
+  left: 13px;
+  width: 1px;
+  background: #555b4d;
+}
+
+.merchant-authority-map li > span {
+  display: grid;
+  place-items: center;
+  align-self: start;
+  width: 27px;
+  height: 27px;
+  border: 1px solid #686f60;
+  border-radius: 50%;
+  font: 10px/1 var(--mono);
+}
+
+.merchant-authority-map strong,
+.merchant-authority-map small {
+  display: block;
+}
+
+.merchant-authority-map strong {
+  font-size: 14px;
+  font-weight: 530;
+}
+
+.merchant-authority-map small {
+  margin-top: 4px;
+  font: 10px/1.5 var(--mono);
+}
+
+.merchant-authority-map > p:last-child {
+  margin: 0;
+  padding-top: 20px;
+  border-top: 1px solid #3c4234;
+  font-size: 12px;
+}
+
+.merchant-review {
+  margin-top: 55px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.merchant-review-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 28px;
+  align-items: flex-start;
+  padding: 26px 30px;
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-review-head .micro-label {
+  margin-bottom: 8px;
+}
+
+.merchant-review-head h2 {
+  font-size: clamp(34px, 4vw, 54px);
+}
+
+.merchant-market-id {
+  margin: 0;
+  padding: 20px 30px 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.merchant-proposal {
+  margin: 30px;
+  padding: 25px;
+  border-top: 4px solid var(--accent);
+  background: var(--surface);
+}
+
+.merchant-proposal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.merchant-proposal-head h3 {
+  font-size: 27px;
+}
+
+.merchant-proposal-state {
+  max-width: 280px;
+  color: var(--green);
+  text-align: right;
+  font: 11px/1.55 var(--mono);
+}
+
+.merchant-proposal > p {
+  max-width: 760px;
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.merchant-proposal-lines dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 23px 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.merchant-proposal-lines dl > div {
+  min-width: 0;
+  padding: 15px 15px 15px 0;
+}
+
+.merchant-proposal-lines dl > div + div {
+  padding-left: 15px;
+  border-left: 1px solid var(--line);
+}
+
+.merchant-proposal-lines dt,
+.merchant-proposal-lines dd {
+  font: 10px/1.55 var(--mono);
+}
+
+.merchant-proposal-lines dt {
+  color: var(--muted);
+}
+
+.merchant-proposal-lines dd {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.merchant-proposal .buyer-provider-line {
+  margin-inline: 0;
+}
+
+.merchant-actions {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 25px;
+}
+
+.merchant-actions + .action-note {
+  margin-top: 14px;
 }
 
 .buyer-result,
@@ -562,11 +915,14 @@ body[data-view="buyer"] .site-header {
   }
 
   .buyer-intro,
-  .buyer-work-grid {
+  .buyer-work-grid,
+  .merchant-intro,
+  .merchant-work-grid {
     gap: 42px;
   }
 
-  .buyer-work-grid {
+  .buyer-work-grid,
+  .merchant-work-grid {
     grid-template-columns: minmax(0, 1fr) 285px;
   }
 
@@ -603,24 +959,30 @@ body[data-view="buyer"] .site-header {
     flex: 1;
   }
 
-  .buyer-shell {
+  .buyer-shell,
+  .merchant-shell {
     padding-top: 40px;
   }
 
   .buyer-intro,
-  .buyer-work-grid {
+  .buyer-work-grid,
+  .merchant-intro,
+  .merchant-work-grid {
     grid-template-columns: 1fr;
   }
 
-  .buyer-intro {
+  .buyer-intro,
+  .merchant-intro {
     gap: 28px;
   }
 
-  .buyer-intro h1 {
+  .buyer-intro h1,
+  .merchant-intro h1 {
     font-size: clamp(43px, 13vw, 72px);
   }
 
-  .buyer-work-grid {
+  .buyer-work-grid,
+  .merchant-work-grid {
     padding-block: 50px;
   }
 
@@ -632,7 +994,9 @@ body[data-view="buyer"] .site-header {
 
   .buyer-result-head,
   .buyer-provider-line,
-  .buyer-freeze-row {
+  .buyer-freeze-row,
+  .merchant-review-head,
+  .merchant-proposal-head {
     flex-direction: column;
   }
 
@@ -658,6 +1022,26 @@ body[data-view="buyer"] .site-header {
     grid-template-columns: 1fr;
     gap: 4px;
   }
+
+  .merchant-attribute-list,
+  .merchant-proposal-lines dl {
+    grid-template-columns: 1fr;
+  }
+
+  .merchant-attribute-list > div + div,
+  .merchant-proposal-lines dl > div + div {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .merchant-proposal-state {
+    max-width: none;
+    text-align: left;
+  }
+
+  .merchant-proposal {
+    margin-inline: 18px;
+  }
 }
 
 @media (max-width: 420px) {
@@ -668,6 +1052,15 @@ body[data-view="buyer"] .site-header {
   .buyer-policy-metrics > div + div {
     padding-left: 0;
     border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .merchant-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .merchant-facts > div:nth-child(even) {
+    padding-left: 0;
     border-left: 0;
   }
 }

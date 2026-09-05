@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from collections.abc import Callable, Mapping
@@ -24,8 +25,13 @@ from clear_market.ai import (
     BuyerIntentParseError,
     BuyerIntentParseFailureCode,
     BuyerPolicyFreezeContextV1,
+    MerchantAIContextError,
+    MerchantOfferProposalFreezeError,
+    MerchantOfferProposalParseError,
     interpret_buyer_intent_v1,
+    propose_merchant_offer_candidate_v1,
 )
+from clear_market.canonical import canonical_json_bytes
 from clear_market.canonical.serialization import canonical_utc_datetime
 from clear_market.certificate.v2 import (
     AllocationCertificateV2,
@@ -37,7 +43,12 @@ from clear_market.certificate.v2 import (
     parse_canonical_allocation_certificate_v2,
 )
 from clear_market.commerce import (
+    MERCHANT_OFFER_CANDIDATE_LINE_V2_VERSION,
+    MERCHANT_OFFER_CANDIDATE_V2_VERSION,
+    AttributeValue,
+    AttributeValueType,
     BuyerPolicyV2,
+    CatalogAttributeV2,
     CatalogProductV2,
     CatalogSkuV2,
     InventoryLineV2,
@@ -74,6 +85,7 @@ from .ai import (
     OneCallProvider,
     ProductAIConfig,
     ProductAIConfigurationError,
+    configured_external_product_ai,
     configured_product_ai,
     fingerprint_invalid_candidate,
 )
@@ -87,6 +99,7 @@ from .policy import CanonicalBuyerPolicyError, parse_canonical_buyer_policy_v2
 from .store import (
     BuyerDraftRecord,
     MarketRecord,
+    MerchantProposalRecord,
     MerchantRecord,
     OfferRecord,
     ProductStore,
@@ -95,6 +108,27 @@ from .store import (
 )
 
 _UUID_ADAPTER = TypeAdapter(CanonicalUUID4)
+_CATALOG_ATTRIBUTE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "catalog_attribute_version",
+        "attribute_key",
+        "value_type",
+        "value",
+        "provenance",
+        "evidence_reference_id",
+    }
+)
+_CANDIDATE_FIELDS = frozenset({"schema_version", "merchant_offer_candidate_version", "lines"})
+_CANDIDATE_LINE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "merchant_offer_candidate_line_version",
+        "sku_id",
+        "proposed_quantity",
+        "proposed_unit_price_paise",
+    }
+)
 
 
 class ProductErrorCode(StrEnum):
@@ -110,6 +144,8 @@ class ProductErrorCode(StrEnum):
     PERSISTED_DATA_INVALID = "PERSISTED_DATA_INVALID"
     DRAFT_NOT_INTERPRETABLE = "DRAFT_NOT_INTERPRETABLE"
     DRAFT_NOT_FREEZABLE = "DRAFT_NOT_FREEZABLE"
+    PROPOSAL_NOT_AVAILABLE = "PROPOSAL_NOT_AVAILABLE"
+    PROPOSAL_NOT_SUBMITTABLE = "PROPOSAL_NOT_SUBMITTABLE"
 
 
 class ProductServiceError(ValueError):
@@ -156,6 +192,143 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate persisted JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value: str) -> None:
+    raise ValueError("non-JSON persisted number")
+
+
+def _load_json(data: bytes) -> object:
+    try:
+        return json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+
+
+def _canonical_catalog_attributes(attributes: tuple[CatalogAttributeV2, ...]) -> bytes:
+    return canonical_json_bytes(
+        [
+            {
+                "schema_version": attribute.schema_version,
+                "catalog_attribute_version": attribute.catalog_attribute_version,
+                "attribute_key": attribute.attribute_key,
+                "value_type": attribute.value.value_type.value,
+                "value": attribute.value.value,
+                "provenance": attribute.provenance.value,
+                "evidence_reference_id": attribute.evidence_reference_id,
+            }
+            for attribute in sorted(attributes, key=lambda value: value.attribute_key)
+        ]
+    )
+
+
+def _parse_catalog_attributes(data: bytes | None) -> tuple[CatalogAttributeV2, ...]:
+    if data is None:
+        return ()
+    parsed = _load_json(data)
+    if type(parsed) is not list:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+    attributes: list[CatalogAttributeV2] = []
+    try:
+        for value in parsed:
+            if type(value) is not dict or set(value) != _CATALOG_ATTRIBUTE_FIELDS:
+                raise ValueError("invalid persisted catalog attribute shape")
+            if (
+                value["schema_version"] != "2"
+                or value["catalog_attribute_version"] != "catalog-attribute-v2"
+                or type(value["value_type"]) is not str
+                or type(value["provenance"]) is not str
+                or value["provenance"] not in {"CLAIMED", "ATTESTED"}
+            ):
+                raise ValueError("invalid persisted catalog attribute version")
+            attributes.append(
+                CatalogAttributeV2(
+                    attribute_key=value["attribute_key"],
+                    value=AttributeValue(
+                        value_type=AttributeValueType(value["value_type"]),
+                        value=value["value"],
+                    ),
+                    provenance=ProvenanceLabel(value["provenance"]),
+                    evidence_reference_id=value["evidence_reference_id"],
+                )
+            )
+        keys = [attribute.attribute_key for attribute in attributes]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate persisted catalog attribute")
+        normalized = tuple(sorted(attributes, key=lambda attribute: attribute.attribute_key))
+    except (KeyError, TypeError, ValueError, ValidationError) as error:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+    if _canonical_catalog_attributes(normalized) != data:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+    return normalized
+
+
+def _canonical_merchant_candidate(candidate: MerchantOfferCandidateV2) -> bytes:
+    return canonical_json_bytes(
+        {
+            "schema_version": candidate.schema_version,
+            "merchant_offer_candidate_version": candidate.merchant_offer_candidate_version,
+            "lines": [
+                {
+                    "schema_version": line.schema_version,
+                    "merchant_offer_candidate_line_version": (
+                        line.merchant_offer_candidate_line_version
+                    ),
+                    "sku_id": line.sku_id,
+                    "proposed_quantity": line.proposed_quantity,
+                    "proposed_unit_price_paise": line.proposed_unit_price.amount_paise,
+                }
+                for line in candidate.lines
+            ],
+        }
+    )
+
+
+def _parse_merchant_candidate(data: bytes) -> MerchantOfferCandidateV2:
+    parsed = _load_json(data)
+    if type(parsed) is not dict or set(parsed) != _CANDIDATE_FIELDS:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+    lines = parsed.get("lines")
+    if (
+        parsed.get("schema_version") != "2"
+        or parsed.get("merchant_offer_candidate_version") != MERCHANT_OFFER_CANDIDATE_V2_VERSION
+        or type(lines) is not list
+    ):
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+    try:
+        candidate = MerchantOfferCandidateV2(
+            lines=tuple(
+                MerchantOfferCandidateLineV2(
+                    sku_id=line["sku_id"],
+                    proposed_quantity=line["proposed_quantity"],
+                    proposed_unit_price=Money(amount_paise=line["proposed_unit_price_paise"]),
+                )
+                for line in lines
+                if type(line) is dict
+                and set(line) == _CANDIDATE_LINE_FIELDS
+                and line.get("schema_version") == "2"
+                and line.get("merchant_offer_candidate_line_version")
+                == MERCHANT_OFFER_CANDIDATE_LINE_V2_VERSION
+            )
+        )
+    except (KeyError, TypeError, ValueError, ValidationError) as error:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+    if len(candidate.lines) != len(lines) or _canonical_merchant_candidate(candidate) != data:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+    return candidate
+
+
 class ProductService:
     """Runtime application path around frozen production CLEAR functions."""
 
@@ -192,7 +365,7 @@ class ProductService:
                 product_id=record.product_id,
                 merchant_sku=record.merchant_sku,
                 display_name=record.product_display_name,
-                attributes=(),
+                attributes=_parse_catalog_attributes(record.canonical_catalog_attributes),
             )
             catalog = MerchantCatalogV2(
                 catalog_id=record.catalog_id,
@@ -318,14 +491,37 @@ class ProductService:
             raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
 
     @staticmethod
-    def _merchant_presentation(record: MerchantRecord) -> dict[str, object]:
+    def _public_merchant_presentation(authority: _MerchantAuthority) -> dict[str, object]:
+        record = authority.record
+        sku = authority.catalog.skus[0]
         return {
             "merchant_id": record.merchant_id,
             "display_name": record.display_name,
             "product_display_name": record.product_display_name,
             "merchant_sku": record.merchant_sku,
             "inventory_quantity": record.inventory_quantity,
+            "attributes": [
+                {
+                    "attribute_key": attribute.attribute_key,
+                    "value_type": attribute.value.value_type.value,
+                    "value": attribute.value.value,
+                    "provenance": attribute.provenance.value,
+                }
+                for attribute in sku.attributes
+            ],
             "created_at": record.created_at,
+        }
+
+    @staticmethod
+    def _merchant_workspace_presentation(authority: _MerchantAuthority) -> dict[str, object]:
+        presentation = ProductService._public_merchant_presentation(authority)
+        rule = authority.economic_policy.sku_rules[0]
+        return {
+            **presentation,
+            "minimum_allowed_unit_price_paise": (
+                rule.unit_cost_basis.amount_paise + rule.minimum_margin.amount_paise
+            ),
+            "max_quantity_per_offer": rule.max_quantity_per_offer,
         }
 
     @staticmethod
@@ -405,6 +601,21 @@ class ProductService:
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption(),
         ).hex()
+        try:
+            attributes = tuple(
+                CatalogAttributeV2(
+                    attribute_key=value.attribute_key,
+                    value=AttributeValue(
+                        value_type=AttributeValueType(value.value_type),
+                        value=value.value,
+                    ),
+                    provenance=ProvenanceLabel(value.provenance),
+                    evidence_reference_id=_new_uuid(),
+                )
+                for value in request.attributes
+            )
+        except (TypeError, ValueError, ValidationError) as error:
+            raise ProductServiceError(ProductErrorCode.INVALID_REQUEST) from error
         record = MerchantRecord(
             merchant_id=_new_uuid(),
             display_name=request.display_name,
@@ -423,6 +634,7 @@ class ProductService:
             signing_public_key_hex=public_key_hex,
             signing_private_key_hex=private_key_hex,
             created_at=now_text,
+            canonical_catalog_attributes=_canonical_catalog_attributes(attributes),
         )
         try:
             authority = self._merchant_authority(record)
@@ -430,6 +642,7 @@ class ProductService:
             raise ProductServiceError(ProductErrorCode.INVALID_REQUEST) from error
         with self.store.connection(write=True) as connection:
             self.store.insert_merchant(connection, record)
+        workspace_presentation = self._merchant_workspace_presentation(authority)
         return {
             "merchant_id": record.merchant_id,
             "display_name": record.display_name,
@@ -442,6 +655,10 @@ class ProductService:
             "unit_cost_basis_paise": record.unit_cost_basis_paise,
             "minimum_margin_paise": record.minimum_margin_paise,
             "max_quantity_per_offer": record.max_quantity_per_offer,
+            "attributes": workspace_presentation["attributes"],
+            "minimum_allowed_unit_price_paise": workspace_presentation[
+                "minimum_allowed_unit_price_paise"
+            ],
             "signing_public_key_hex": authority.identity.ed25519_public_key_hex,
             "created_at": record.created_at,
         }
@@ -449,9 +666,529 @@ class ProductService:
     def list_merchants(self) -> dict[str, object]:
         with self.store.connection() as connection:
             records = self.store.list_merchants(connection)
-            for record in records:
-                self._merchant_authority(record)
-        return {"merchants": [self._merchant_presentation(record) for record in records]}
+            authorities = [self._merchant_authority(record) for record in records]
+        return {"merchants": [self._public_merchant_presentation(value) for value in authorities]}
+
+    @staticmethod
+    def _require_market_offerable(
+        *,
+        market: MarketRecord,
+        policy: BuyerPolicyV2,
+        merchant_id: str,
+        now: datetime,
+    ) -> None:
+        if market.state != "OPEN":
+            raise ProductServiceError(ProductErrorCode.MARKET_NOT_OPEN)
+        if merchant_id not in policy.eligible_merchant_ids:
+            raise ProductServiceError(ProductErrorCode.MERCHANT_NOT_ELIGIBLE)
+        if now > policy.offer_deadline:
+            raise ProductServiceError(ProductErrorCode.OFFER_DEADLINE_PASSED)
+
+    @staticmethod
+    def _candidate_presentation(candidate: MerchantOfferCandidateV2) -> dict[str, object]:
+        return {
+            "lines": [
+                {
+                    "sku_id": line.sku_id,
+                    "proposed_quantity": line.proposed_quantity,
+                    "proposed_unit_price_paise": line.proposed_unit_price.amount_paise,
+                }
+                for line in candidate.lines
+            ]
+        }
+
+    @staticmethod
+    def _authenticate_offer_record(
+        record: OfferRecord,
+        *,
+        authority: _MerchantAuthority,
+        policy: BuyerPolicyV2,
+    ) -> object:
+        try:
+            authenticated = verify_canonical_signed_merchant_offer_v2(
+                data=record.canonical_signed_offer,
+                signing_identity=authority.identity,
+                buyer_policy=policy,
+                catalog=authority.catalog,
+                inventory=authority.inventory,
+            )
+        except (MerchantOfferVerificationError, SignedMerchantOfferParseError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        if (
+            authenticated.offer.offer_id != record.offer_id
+            or authenticated.offer.market_id != record.market_id
+            or authenticated.offer.merchant_id != record.merchant_id
+            or len(authenticated.offer.lines) != 1
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        line = authenticated.offer.lines[0]
+        if (
+            line.max_offer_quantity != record.proposed_quantity
+            or line.unit_price.amount_paise != record.proposed_unit_price_paise
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        return authenticated
+
+    @classmethod
+    def _proposal_presentation(
+        cls,
+        proposal: MerchantProposalRecord | None,
+        *,
+        offer: OfferRecord | None,
+        authority: _MerchantAuthority,
+        policy: BuyerPolicyV2,
+    ) -> dict[str, object]:
+        if offer is not None:
+            cls._authenticate_offer_record(offer, authority=authority, policy=policy)
+            if proposal is not None and (
+                proposal.state != "SUBMITTED" or proposal.submitted_offer_id != offer.offer_id
+            ):
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            return {
+                "state": "SUBMITTED",
+                "authority": "AUTHENTICATED_OFFER",
+                "signed": True,
+                "authenticated": True,
+                "submitted": True,
+                "market_cleared": False,
+                "offer": {
+                    "offer_id": offer.offer_id,
+                    "proposed_quantity": offer.proposed_quantity,
+                    "proposed_unit_price_paise": offer.proposed_unit_price_paise,
+                    "received_at": offer.received_at,
+                },
+                "provider_name": None if proposal is None else proposal.provider_name,
+                "model": None if proposal is None else proposal.model,
+                "provider_invoked": False if proposal is None else proposal.provider_invoked,
+            }
+        if proposal is None:
+            return {"state": "NO_PROPOSAL", "provider_invoked": False}
+        base: dict[str, object] = {
+            "state": proposal.state,
+            "provider_identity": PROVIDER_IDENTITY,
+            "provider_name": proposal.provider_name,
+            "model": proposal.model,
+            "provider_invoked": proposal.provider_invoked,
+        }
+        if proposal.state == "PROPOSING":
+            return base
+        if proposal.state == "NO_OFFER":
+            return {
+                **base,
+                "decision": "NO_OFFER",
+                "valid": True,
+                "signed": False,
+                "submitted": False,
+            }
+        if proposal.state != "PROPOSED" or proposal.canonical_candidate is None:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        candidate = _parse_merchant_candidate(proposal.canonical_candidate)
+        return {
+            **base,
+            "decision": "OFFER",
+            "authority": "ADVISORY_ONLY",
+            "signed": False,
+            "submitted": False,
+            "candidate": cls._candidate_presentation(candidate),
+        }
+
+    @classmethod
+    def _merchant_market_presentation(
+        cls,
+        *,
+        market: MarketRecord,
+        policy: BuyerPolicyV2,
+        proposal: MerchantProposalRecord | None,
+        offer: OfferRecord | None,
+        authority: _MerchantAuthority,
+    ) -> dict[str, object]:
+        hard, soft = cls._rules_presentation(policy)
+        return {
+            "market_id": market.market_id,
+            "market_state": market.state,
+            "buyer_policy_frozen": True,
+            "requested_quantity": policy.market_spec.requested_quantity,
+            "minimum_acceptable_quantity": policy.market_spec.minimum_acceptable_quantity,
+            "max_winners": policy.market_spec.max_winners,
+            "max_total_payment_paise": policy.max_total_payment.amount_paise,
+            "offer_deadline": canonical_utc_datetime(policy.offer_deadline),
+            "hard_constraints": hard,
+            "soft_preferences": soft,
+            "proposal": cls._proposal_presentation(
+                proposal,
+                offer=offer,
+                authority=authority,
+                policy=policy,
+            ),
+        }
+
+    def list_merchant_markets(self, merchant_id: str) -> dict[str, object]:
+        merchant_id = _parse_uuid(merchant_id)
+        with self.store.connection() as connection:
+            merchant = self.store.get_merchant(connection, merchant_id)
+            if merchant is None:
+                raise ProductServiceError(ProductErrorCode.NOT_FOUND)
+            authority = self._merchant_authority(merchant)
+            markets: list[dict[str, object]] = []
+            for market in self.store.list_open_markets(connection):
+                policy = self._load_policy(market)
+                if merchant_id not in policy.eligible_merchant_ids:
+                    continue
+                proposal = self.store.get_merchant_proposal(
+                    connection,
+                    market_id=market.market_id,
+                    merchant_id=merchant_id,
+                )
+                offer = self.store.get_offer_for_merchant(
+                    connection,
+                    market_id=market.market_id,
+                    merchant_id=merchant_id,
+                )
+                markets.append(
+                    self._merchant_market_presentation(
+                        market=market,
+                        policy=policy,
+                        proposal=proposal,
+                        offer=offer,
+                        authority=authority,
+                    )
+                )
+        return {
+            "merchant": self._merchant_workspace_presentation(authority),
+            "markets": markets,
+        }
+
+    def _merchant_proposal_target(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        merchant_id: str,
+        market_id: str,
+        now: datetime,
+    ) -> tuple[MarketRecord, BuyerPolicyV2, _MerchantAuthority]:
+        merchant = self.store.get_merchant(connection, merchant_id)
+        market = self.store.get_market(connection, market_id)
+        if merchant is None or market is None:
+            raise ProductServiceError(ProductErrorCode.NOT_FOUND)
+        authority = self._merchant_authority(merchant)
+        policy = self._load_policy(market)
+        self._require_market_offerable(
+            market=market,
+            policy=policy,
+            merchant_id=merchant_id,
+            now=now,
+        )
+        return market, policy, authority
+
+    @staticmethod
+    def _merchant_ai_failure(
+        *,
+        market_id: str,
+        merchant_id: str,
+        config: ProductAIConfig | None,
+        provider_invoked: bool,
+        code: str,
+        message: str,
+        unavailable: bool = False,
+        diagnostic_code: str | None = None,
+    ) -> dict[str, object]:
+        result: dict[str, object] = {
+            "result": "UNAVAILABLE" if unavailable else "FAILED",
+            "market_id": market_id,
+            "merchant_id": merchant_id,
+            "state": "NO_PROPOSAL",
+            "authority": "ADVISORY_ONLY",
+            "provider_protocol": PROVIDER_PROTOCOL,
+            "provider_identity": PROVIDER_IDENTITY,
+            "provider_name": None if config is None else config.provider_name,
+            "model": None if config is None else config.model,
+            "provider_invoked": provider_invoked,
+            "code": code,
+            "message": message,
+        }
+        if diagnostic_code is not None:
+            result["diagnostic_code"] = diagnostic_code
+        return result
+
+    def _reset_merchant_proposal(self, *, market_id: str, merchant_id: str) -> None:
+        with self.store.connection(write=True) as connection:
+            self.store.reset_merchant_proposal(
+                connection,
+                market_id=market_id,
+                merchant_id=merchant_id,
+            )
+
+    def propose_merchant_offer(
+        self,
+        merchant_id: str,
+        market_id: str,
+        *,
+        environment: Mapping[str, str] | None = None,
+        provider: AIProvider | None = None,
+    ) -> dict[str, object]:
+        merchant_id = _parse_uuid(merchant_id)
+        market_id = _parse_uuid(market_id)
+        now = self._now()
+        with self.store.connection() as connection:
+            self._merchant_proposal_target(
+                connection,
+                merchant_id=merchant_id,
+                market_id=market_id,
+                now=now,
+            )
+        try:
+            config, selected_provider = configured_external_product_ai(
+                os.environ if environment is None else environment,
+                provider,
+            )
+        except ProductAIConfigurationError:
+            return self._merchant_ai_failure(
+                market_id=market_id,
+                merchant_id=merchant_id,
+                config=None,
+                provider_invoked=False,
+                code="LIVE_AI_UNAVAILABLE",
+                message=(
+                    "Exactly one valid server-side AI model and provider configuration is required."
+                ),
+                unavailable=True,
+            )
+        now_text = canonical_utc_datetime(now)
+        with self.store.connection(write=True) as connection:
+            self._merchant_proposal_target(
+                connection,
+                merchant_id=merchant_id,
+                market_id=market_id,
+                now=now,
+            )
+            if (
+                self.store.get_merchant_proposal(
+                    connection,
+                    market_id=market_id,
+                    merchant_id=merchant_id,
+                )
+                is not None
+                or self.store.get_offer_for_merchant(
+                    connection,
+                    market_id=market_id,
+                    merchant_id=merchant_id,
+                )
+                is not None
+            ):
+                raise ProductServiceError(ProductErrorCode.PROPOSAL_NOT_AVAILABLE)
+            try:
+                self.store.claim_merchant_proposal(
+                    connection,
+                    market_id=market_id,
+                    merchant_id=merchant_id,
+                    provider_name=config.provider_name,
+                    model=config.model,
+                    now=now_text,
+                )
+            except sqlite3.IntegrityError as error:
+                raise ProductServiceError(ProductErrorCode.PROPOSAL_NOT_AVAILABLE) from error
+
+        bounded_provider = OneCallProvider(selected_provider)
+        try:
+            with self.store.connection() as connection:
+                _market, policy, authority = self._merchant_proposal_target(
+                    connection,
+                    merchant_id=merchant_id,
+                    market_id=market_id,
+                    now=now,
+                )
+            candidate = propose_merchant_offer_candidate_v1(
+                provider=bounded_provider,
+                request_id=_new_uuid(),
+                provider_name=config.provider_name,
+                model=config.model,
+                buyer_policy=policy,
+                catalog=authority.catalog,
+                inventory=authority.inventory,
+                economic_policy=authority.economic_policy,
+            )
+            if bounded_provider.delegated_calls != 1:
+                raise RuntimeError("merchant proposal did not make exactly one provider call")
+        except AIProviderError as error:
+            invoked = bounded_provider.delegated_calls == 1
+            self._reset_merchant_proposal(market_id=market_id, merchant_id=merchant_id)
+            code, message = self._provider_failure_details(error)
+            return self._merchant_ai_failure(
+                market_id=market_id,
+                merchant_id=merchant_id,
+                config=config,
+                provider_invoked=invoked,
+                code=code,
+                message=message,
+            )
+        except MerchantOfferProposalParseError as error:
+            self._reset_merchant_proposal(market_id=market_id, merchant_id=merchant_id)
+            return self._merchant_ai_failure(
+                market_id=market_id,
+                merchant_id=merchant_id,
+                config=config,
+                provider_invoked=True,
+                code="STRICT_MERCHANT_OFFER_PARSE_FAILURE",
+                message="The provider output failed the strict merchant-offer parser.",
+                diagnostic_code=error.code.value,
+            )
+        except MerchantOfferProposalFreezeError as error:
+            self._reset_merchant_proposal(market_id=market_id, merchant_id=merchant_id)
+            return self._merchant_ai_failure(
+                market_id=market_id,
+                merchant_id=merchant_id,
+                config=config,
+                provider_invoked=True,
+                code="STRICT_MERCHANT_OFFER_REJECTION",
+                message="The parsed merchant offer proposal was rejected.",
+                diagnostic_code=error.code.value,
+            )
+        except MerchantAIContextError as error:
+            self._reset_merchant_proposal(market_id=market_id, merchant_id=merchant_id)
+            return self._merchant_ai_failure(
+                market_id=market_id,
+                merchant_id=merchant_id,
+                config=config,
+                provider_invoked=bounded_provider.delegated_calls == 1,
+                code="MERCHANT_AI_CONTEXT_REJECTED",
+                message="The authoritative merchant AI context was rejected.",
+                diagnostic_code=error.code.value,
+            )
+        except Exception:
+            invoked = bounded_provider.delegated_calls == 1
+            self._reset_merchant_proposal(market_id=market_id, merchant_id=merchant_id)
+            return self._merchant_ai_failure(
+                market_id=market_id,
+                merchant_id=merchant_id,
+                config=config,
+                provider_invoked=invoked,
+                code="LIVE_AI_INTERNAL_FAILURE",
+                message="The merchant-offer AI boundary failed closed.",
+            )
+
+        canonical_candidate = (
+            None if candidate is None else _canonical_merchant_candidate(candidate)
+        )
+        try:
+            with self.store.connection(write=True) as connection:
+                self._merchant_proposal_target(
+                    connection,
+                    merchant_id=merchant_id,
+                    market_id=market_id,
+                    now=self._now(),
+                )
+                self.store.complete_merchant_proposal(
+                    connection,
+                    market_id=market_id,
+                    merchant_id=merchant_id,
+                    state="NO_OFFER" if candidate is None else "PROPOSED",
+                    canonical_candidate=canonical_candidate,
+                    now=canonical_utc_datetime(self._now()),
+                )
+        except Exception:
+            self._reset_merchant_proposal(market_id=market_id, merchant_id=merchant_id)
+            raise
+        inbox = self.list_merchant_markets(merchant_id)
+        market_result = next(item for item in inbox["markets"] if item["market_id"] == market_id)
+        return {"result": "SUCCESS", **market_result["proposal"]}
+
+    def submit_merchant_proposal(self, merchant_id: str, market_id: str) -> dict[str, object]:
+        merchant_id = _parse_uuid(merchant_id)
+        market_id = _parse_uuid(market_id)
+        received_at = self._now()
+        with self.store.connection(write=True) as connection:
+            _market, buyer_policy, authority = self._merchant_proposal_target(
+                connection,
+                merchant_id=merchant_id,
+                market_id=market_id,
+                now=received_at,
+            )
+            proposal = self.store.get_merchant_proposal(
+                connection,
+                market_id=market_id,
+                merchant_id=merchant_id,
+            )
+            if (
+                proposal is None
+                or proposal.state != "PROPOSED"
+                or proposal.canonical_candidate is None
+            ):
+                raise ProductServiceError(ProductErrorCode.PROPOSAL_NOT_SUBMITTABLE)
+            if (
+                self.store.get_offer_for_merchant(
+                    connection,
+                    market_id=market_id,
+                    merchant_id=merchant_id,
+                )
+                is not None
+            ):
+                raise ProductServiceError(ProductErrorCode.DUPLICATE_OFFER)
+            candidate = _parse_merchant_candidate(proposal.canonical_candidate)
+            private_key = self._load_private_signing_key(authority.record, authority.identity)
+            offer_id = _new_uuid()
+            try:
+                signed_offer = build_and_sign_merchant_offer_v2(
+                    offer_id=offer_id,
+                    buyer_policy=buyer_policy,
+                    catalog=authority.catalog,
+                    inventory=authority.inventory,
+                    economic_policy=authority.economic_policy,
+                    candidate=candidate,
+                    signing_identity=authority.identity,
+                    private_key=private_key,
+                )
+            except MerchantOfferBuildError as error:
+                raise ProductServiceError(ProductErrorCode.MERCHANT_OFFER_REJECTED) from error
+            except MerchantOfferSigningError as error:
+                raise ProductServiceError(ProductErrorCode.OFFER_AUTHENTICATION_FAILED) from error
+            canonical_offer = canonical_signed_merchant_offer_v2_bytes(signed_offer)
+            try:
+                authenticated = verify_canonical_signed_merchant_offer_v2(
+                    data=canonical_offer,
+                    signing_identity=authority.identity,
+                    buyer_policy=buyer_policy,
+                    catalog=authority.catalog,
+                    inventory=authority.inventory,
+                )
+            except (MerchantOfferVerificationError, SignedMerchantOfferParseError) as error:
+                raise ProductServiceError(ProductErrorCode.OFFER_AUTHENTICATION_FAILED) from error
+            if len(authenticated.offer.lines) != 1:
+                raise ProductServiceError(ProductErrorCode.MERCHANT_OFFER_REJECTED)
+            line = authenticated.offer.lines[0]
+            offer_record = OfferRecord(
+                offer_id=authenticated.offer.offer_id,
+                market_id=market_id,
+                merchant_id=merchant_id,
+                proposed_quantity=line.max_offer_quantity,
+                proposed_unit_price_paise=line.unit_price.amount_paise,
+                received_at=canonical_utc_datetime(received_at),
+                canonical_signed_offer=canonical_offer,
+            )
+            try:
+                self.store.insert_offer(connection, offer_record)
+                self.store.mark_merchant_proposal_submitted(
+                    connection,
+                    market_id=market_id,
+                    merchant_id=merchant_id,
+                    offer_id=offer_record.offer_id,
+                    now=offer_record.received_at,
+                )
+            except (sqlite3.IntegrityError, RuntimeError) as error:
+                raise ProductServiceError(ProductErrorCode.PROPOSAL_NOT_SUBMITTABLE) from error
+        return {
+            "result": "SUCCESS",
+            "state": "SUBMITTED",
+            "market_id": market_id,
+            "merchant_id": merchant_id,
+            "offer_id": offer_record.offer_id,
+            "signed": True,
+            "authenticated": True,
+            "submitted": True,
+            "market_cleared": False,
+            "proposed_quantity": offer_record.proposed_quantity,
+            "proposed_unit_price_paise": offer_record.proposed_unit_price_paise,
+            "received_at": offer_record.received_at,
+        }
 
     def create_buyer_draft(self, request: CreateBuyerDraftRequest) -> dict[str, object]:
         eligible_ids = tuple(_parse_uuid(value) for value in request.eligible_merchant_ids)
@@ -491,7 +1228,10 @@ class ProductService:
             "buyer_id": draft.buyer_id,
             "state": draft.state,
             "buyer_text": draft.buyer_text,
-            "eligible_merchants": [self._merchant_presentation(record) for record in merchants],
+            "eligible_merchants": [
+                self._public_merchant_presentation(self._merchant_authority(record))
+                for record in merchants
+            ],
             "offer_deadline": draft.offer_deadline,
             "authority": "ADVISORY_ONLY",
         }
@@ -863,6 +1603,15 @@ class ProductService:
             merchant_record = self.store.get_merchant(connection, merchant_id)
             if merchant_record is None:
                 raise ProductServiceError(ProductErrorCode.NOT_FOUND)
+            if (
+                self.store.get_merchant_proposal(
+                    connection,
+                    market_id=market_id,
+                    merchant_id=merchant_id,
+                )
+                is not None
+            ):
+                raise ProductServiceError(ProductErrorCode.PROPOSAL_NOT_SUBMITTABLE)
             authority = self._merchant_authority(merchant_record)
             private_key = self._load_private_signing_key(merchant_record, authority.identity)
             buyer_policy = self._load_policy(market)

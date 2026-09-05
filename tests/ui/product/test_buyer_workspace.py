@@ -199,6 +199,8 @@ def test_runtime_merchant_discovery_is_safe_and_persisted(tmp_path: Path) -> Non
     assert "signing_private" not in text
     assert "unit_cost_basis" not in text
     assert "minimum_margin" not in text
+    assert "minimum_allowed_unit_price_paise" not in text
+    assert "max_quantity_per_offer" not in text
 
 
 def test_buyer_draft_generates_ids_and_no_authoritative_market(tmp_path: Path) -> None:
@@ -212,6 +214,9 @@ def test_buyer_draft_generates_ids_and_no_authoritative_market(tmp_path: Path) -
     assert draft["authority"] == "ADVISORY_ONLY"
     assert draft["market_id"] not in merchants
     assert type(draft["buyer_id"]) is str
+    draft_text = json.dumps(draft)
+    assert "minimum_allowed_unit_price_paise" not in draft_text
+    assert "max_quantity_per_offer" not in draft_text
     with service.store.connection() as connection:
         assert service.store.count_markets(connection, str(draft["market_id"])) == 0
 

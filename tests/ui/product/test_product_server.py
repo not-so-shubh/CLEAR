@@ -277,3 +277,84 @@ def test_buyer_routes_reject_client_supplied_authority_fields(
     assert freeze_status == 400
     market_status, _ = _request("GET", f"/api/product-v1/markets/{market_id}")
     assert market_status == 404
+
+
+def test_merchant_workspace_routes_are_authoritative_strict_and_share_ai_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLEAR_PRODUCT_DB_PATH", str(tmp_path / "product.sqlite3"))
+    for name in (
+        "CLEAR_AI_BASE_URL",
+        "CLEAR_AI_API_KEY",
+        "CLEAR_AI_PROVIDER_NAME",
+        "CLEAR_AI_MODELS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    alpha_body = {
+        **_merchant("Alpha"),
+        "attributes": [
+            {
+                "attribute_key": "ram_gb",
+                "value_type": "integer",
+                "value": 32,
+                "provenance": "ATTESTED",
+            }
+        ],
+    }
+    _, alpha = _post("/api/product-v1/merchants", alpha_body)
+    _, beta = _post("/api/product-v1/merchants", _merchant("Beta"))
+    _, gamma = _post("/api/product-v1/merchants", _merchant("Gamma"))
+    _, market = _post(
+        "/api/product-v1/markets",
+        {
+            "requested_quantity": 2,
+            "minimum_acceptable_quantity": 1,
+            "max_winners": 2,
+            "max_total_payment_paise": 10_000,
+            "eligible_merchant_ids": [alpha["merchant_id"], beta["merchant_id"]],
+            "offer_deadline": canonical_utc_datetime(datetime.now(UTC) + timedelta(hours=1)),
+        },
+    )
+    market_id = market["market_id"]
+
+    inbox_status, inbox = _request(
+        "GET", f"/api/product-v1/merchants/{alpha['merchant_id']}/markets"
+    )
+    excluded_status, excluded = _request(
+        "GET", f"/api/product-v1/merchants/{gamma['merchant_id']}/markets"
+    )
+
+    assert inbox_status == 200
+    assert inbox["merchant"]["attributes"] == [
+        {
+            "attribute_key": "ram_gb",
+            "value_type": "integer",
+            "value": 32,
+            "provenance": "ATTESTED",
+        }
+    ]
+    assert [item["market_id"] for item in inbox["markets"]] == [market_id]
+    assert excluded_status == 200
+    assert excluded["markets"] == []
+    assert "private" not in json.dumps(inbox).lower()
+
+    propose_path = f"/api/product-v1/merchants/{alpha['merchant_id']}/markets/{market_id}/propose"
+    submit_path = (
+        f"/api/product-v1/merchants/{alpha['merchant_id']}/markets/{market_id}/submit-proposal"
+    )
+    assert _post(propose_path, {"proposed_quantity": 1})[0] == 400
+    assert _post(submit_path, {"proposed_unit_price_paise": 500})[0] == 400
+
+    unavailable_status, unavailable = _post(propose_path, {})
+    assert unavailable_status == 503
+    assert unavailable["code"] == "LIVE_AI_UNAVAILABLE"
+    assert unavailable["provider_invoked"] is False
+
+    assert server_module._LIVE_AI_EVIDENCE_LOCK.acquire(blocking=False)
+    try:
+        busy_status, busy = _post(propose_path, {})
+    finally:
+        server_module._LIVE_AI_EVIDENCE_LOCK.release()
+    assert busy_status == 409
+    assert busy["code"] == "LIVE_AI_BUSY"
+    assert busy["provider_invoked"] is False

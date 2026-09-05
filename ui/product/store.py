@@ -30,6 +30,7 @@ class MerchantRecord:
     signing_public_key_hex: str
     signing_private_key_hex: str
     created_at: str
+    canonical_catalog_attributes: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,20 @@ class OfferRecord:
     proposed_unit_price_paise: int
     received_at: str
     canonical_signed_offer: bytes
+
+
+@dataclass(frozen=True)
+class MerchantProposalRecord:
+    market_id: str
+    merchant_id: str
+    state: str
+    canonical_candidate: bytes | None
+    provider_name: str
+    model: str
+    provider_invoked: bool
+    submitted_offer_id: str | None
+    created_at: str
+    updated_at: str
 
 
 @dataclass(frozen=True)
@@ -121,7 +136,8 @@ class ProductStore:
                     max_quantity_per_offer INTEGER NOT NULL,
                     signing_public_key_hex TEXT NOT NULL,
                     signing_private_key_hex TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    canonical_catalog_attributes BLOB
                 );
 
                 CREATE TABLE IF NOT EXISTS product_markets (
@@ -180,8 +196,42 @@ class ProductStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS product_merchant_proposals (
+                    market_id TEXT NOT NULL REFERENCES product_markets(market_id),
+                    merchant_id TEXT NOT NULL REFERENCES product_merchants(merchant_id),
+                    state TEXT NOT NULL CHECK (
+                        state IN ('PROPOSING', 'PROPOSED', 'NO_OFFER', 'SUBMITTED')
+                    ),
+                    canonical_candidate BLOB,
+                    provider_name TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    provider_invoked INTEGER NOT NULL CHECK (provider_invoked IN (0, 1)),
+                    submitted_offer_id TEXT REFERENCES product_offers(offer_id),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (market_id, merchant_id),
+                    CHECK (
+                        (state = 'PROPOSING' AND canonical_candidate IS NULL
+                            AND submitted_offer_id IS NULL)
+                        OR (state = 'NO_OFFER' AND canonical_candidate IS NULL
+                            AND submitted_offer_id IS NULL AND provider_invoked = 1)
+                        OR (state = 'PROPOSED' AND canonical_candidate IS NOT NULL
+                            AND submitted_offer_id IS NULL AND provider_invoked = 1)
+                        OR (state = 'SUBMITTED' AND canonical_candidate IS NOT NULL
+                            AND submitted_offer_id IS NOT NULL AND provider_invoked = 1)
+                    )
+                );
                 """
             )
+            merchant_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(product_merchants)").fetchall()
+            }
+            if "canonical_catalog_attributes" not in merchant_columns:
+                connection.execute(
+                    "ALTER TABLE product_merchants ADD COLUMN canonical_catalog_attributes BLOB"
+                )
             market_columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(product_markets)").fetchall()
@@ -213,9 +263,13 @@ class ProductStore:
     def insert_merchant(connection: sqlite3.Connection, record: MerchantRecord) -> None:
         connection.execute(
             """
-            INSERT INTO product_merchants VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-            )
+            INSERT INTO product_merchants (
+                merchant_id, display_name, product_id, catalog_id, sku_id, snapshot_id,
+                inventory_evidence_reference_id, economic_policy_id, product_display_name,
+                merchant_sku, inventory_quantity, unit_cost_basis_paise, minimum_margin_paise,
+                max_quantity_per_offer, signing_public_key_hex, signing_private_key_hex,
+                created_at, canonical_catalog_attributes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.merchant_id,
@@ -235,6 +289,7 @@ class ProductStore:
                 record.signing_public_key_hex,
                 record.signing_private_key_hex,
                 record.created_at,
+                record.canonical_catalog_attributes,
             ),
         )
 
@@ -471,6 +526,132 @@ class ProductStore:
         ).fetchone()
         assert row is not None
         return int(row["count"])
+
+    @staticmethod
+    def get_offer_for_merchant(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        merchant_id: str,
+    ) -> OfferRecord | None:
+        row = connection.execute(
+            """
+            SELECT * FROM product_offers
+            WHERE market_id = ? AND merchant_id = ?
+            """,
+            (market_id, merchant_id),
+        ).fetchone()
+        return None if row is None else OfferRecord(**dict(row))
+
+    @staticmethod
+    def list_open_markets(connection: sqlite3.Connection) -> tuple[MarketRecord, ...]:
+        rows = connection.execute(
+            "SELECT * FROM product_markets WHERE state = 'OPEN' ORDER BY created_at, market_id"
+        ).fetchall()
+        markets: list[MarketRecord] = []
+        for row in rows:
+            values = dict(row)
+            values["eligible_merchant_ids"] = tuple(
+                json.loads(values.pop("eligible_merchant_ids_json"))
+            )
+            markets.append(MarketRecord(**values))
+        return tuple(markets)
+
+    @staticmethod
+    def get_merchant_proposal(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        merchant_id: str,
+    ) -> MerchantProposalRecord | None:
+        row = connection.execute(
+            """
+            SELECT * FROM product_merchant_proposals
+            WHERE market_id = ? AND merchant_id = ?
+            """,
+            (market_id, merchant_id),
+        ).fetchone()
+        if row is None:
+            return None
+        values = dict(row)
+        values["provider_invoked"] = bool(values["provider_invoked"])
+        return MerchantProposalRecord(**values)
+
+    @staticmethod
+    def claim_merchant_proposal(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        merchant_id: str,
+        provider_name: str,
+        model: str,
+        now: str,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO product_merchant_proposals (
+                market_id, merchant_id, state, canonical_candidate, provider_name, model,
+                provider_invoked, submitted_offer_id, created_at, updated_at
+            ) VALUES (?, ?, 'PROPOSING', NULL, ?, ?, 0, NULL, ?, ?)
+            """,
+            (market_id, merchant_id, provider_name, model, now, now),
+        )
+
+    @staticmethod
+    def complete_merchant_proposal(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        merchant_id: str,
+        state: str,
+        canonical_candidate: bytes | None,
+        now: str,
+    ) -> None:
+        cursor = connection.execute(
+            """
+            UPDATE product_merchant_proposals
+            SET state = ?, canonical_candidate = ?, provider_invoked = 1, updated_at = ?
+            WHERE market_id = ? AND merchant_id = ? AND state = 'PROPOSING'
+            """,
+            (state, canonical_candidate, now, market_id, merchant_id),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("merchant proposal completion failed")
+
+    @staticmethod
+    def reset_merchant_proposal(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        merchant_id: str,
+    ) -> None:
+        connection.execute(
+            """
+            DELETE FROM product_merchant_proposals
+            WHERE market_id = ? AND merchant_id = ? AND state = 'PROPOSING'
+            """,
+            (market_id, merchant_id),
+        )
+
+    @staticmethod
+    def mark_merchant_proposal_submitted(
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        merchant_id: str,
+        offer_id: str,
+        now: str,
+    ) -> None:
+        cursor = connection.execute(
+            """
+            UPDATE product_merchant_proposals
+            SET state = 'SUBMITTED', submitted_offer_id = ?, updated_at = ?
+            WHERE market_id = ? AND merchant_id = ? AND state = 'PROPOSED'
+            """,
+            (offer_id, now, market_id, merchant_id),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("merchant proposal submission transition failed")
 
     @staticmethod
     def transition_market_to_closed(

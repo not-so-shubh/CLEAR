@@ -16,6 +16,7 @@
       <a class="wordmark" href="#top" aria-label="CLEAR home"><span class="wordmark-mark" aria-hidden="true">//</span>clear<span class="wordmark-period">.</span></a>
       <div class="app-switch" role="group" aria-label="Application view">
         <button type="button" data-view-target="buyer" aria-pressed="true">Buyer</button>
+        <button type="button" data-view-target="merchant" aria-pressed="false">Merchant</button>
         <button type="button" data-view-target="evidence" aria-pressed="false">Evidence</button>
       </div>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">Menu <span aria-hidden="true">+</span></button>
@@ -127,6 +128,108 @@
         </dl>
         <p>AI INTERPRETED THE REQUEST. AI DID NOT OPEN FINANCIAL AUTHORITY. The buyer’s explicit freeze created this persisted market policy.</p>
         <p class="buyer-scope-note">No winner, allocation, certificate, Governor decision, Razorpay action, or payment is claimed here.</p>
+      </section>
+    </main>
+
+    <main class="merchant-shell" id="merchant-workspace" data-app-view="merchant" hidden>
+      <section class="merchant-intro" aria-labelledby="merchant-title">
+        <div>
+          <p class="kicker">CLEAR · MERCHANT WORKSPACE</p>
+          <h1 id="merchant-title">Inspect trusted supply.<br /><em>Submit only by choice.</em></h1>
+        </div>
+        <div class="merchant-intro-copy">
+          <p>The server selects eligible open markets and reconstructs the merchant’s persisted catalog, inventory, and economic policy.</p>
+          <p class="buyer-boundary-copy">AI proposes commercial values. Deterministic production logic validates, signs, and authenticates only after explicit submission.</p>
+        </div>
+      </section>
+
+      <section class="merchant-work-grid" aria-label="Merchant market workspace">
+        <div class="merchant-control-column">
+          <label class="buyer-field" for="merchant-select">
+            <span>Runtime merchant</span>
+            <select id="merchant-select">
+              <option value="">Select a merchant</option>
+            </select>
+            <small>Merchant identities are loaded from the runtime product database.</small>
+          </label>
+
+          <section class="merchant-profile" id="merchant-profile" hidden>
+            <div class="buyer-section-heading">
+              <span class="buyer-step">01 /</span>
+              <div><p class="micro-label">TRUSTED SUPPLY</p><h2 data-merchant-field="display-name">Merchant</h2></div>
+            </div>
+            <dl class="merchant-facts">
+              <div><dt>PRODUCT</dt><dd data-merchant-field="product-name">—</dd></div>
+              <div><dt>SKU</dt><dd data-merchant-field="merchant-sku">—</dd></div>
+              <div><dt>INVENTORY</dt><dd data-merchant-field="inventory">—</dd></div>
+              <div><dt>MINIMUM UNIT PRICE</dt><dd><span data-merchant-field="minimum-price">—</span> PAISE</dd></div>
+              <div><dt>MAX OFFER QUANTITY</dt><dd data-merchant-field="maximum-quantity">—</dd></div>
+            </dl>
+            <div class="merchant-attributes">
+              <p class="micro-label">CATALOG ATTRIBUTES</p>
+              <div id="merchant-attribute-list" class="merchant-attribute-list"></div>
+            </div>
+          </section>
+
+          <section class="merchant-inbox" aria-labelledby="merchant-inbox-title">
+            <div class="buyer-section-heading">
+              <span class="buyer-step">02 /</span>
+              <div><p class="micro-label">SERVER-FILTERED</p><h2 id="merchant-inbox-title">Open market inbox</h2></div>
+            </div>
+            <div id="merchant-market-list" class="merchant-market-list">
+              <p class="muted">Select a runtime merchant to load eligible open markets.</p>
+            </div>
+          </section>
+        </div>
+
+        <aside class="merchant-authority-map" aria-label="Merchant authority path">
+          <p class="micro-label">MERCHANT AUTHORITY PATH</p>
+          <ol>
+            <li><span>01</span><div><strong>Merchant agent</strong><small>EXPLICIT ACTION</small></div></li>
+            <li><span>02</span><div><strong>Open market</strong><small>SERVER ELIGIBILITY</small></div></li>
+            <li><span>03</span><div><strong>Trusted sources</strong><small>CATALOG · INVENTORY · POLICY</small></div></li>
+            <li><span>04</span><div><strong>AI proposal</strong><small>ADVISORY ONLY</small></div></li>
+            <li><span>05</span><div><strong>Explicit submit</strong><small>MERCHANT CHOICE</small></div></li>
+            <li><span>06</span><div><strong>Validate · sign · authenticate</strong><small>DETERMINISTIC</small></div></li>
+          </ol>
+          <p>No winner, allocation, certificate, Governor decision, Razorpay action, or payment exists in this workspace.</p>
+        </aside>
+      </section>
+
+      <section class="merchant-review" id="merchant-market-review" aria-live="polite" hidden>
+        <div class="merchant-review-head">
+          <div><p class="micro-label">AUTHORITATIVE OPEN MARKET</p><h2>Buyer request</h2></div>
+          <p class="buyer-validation-state" data-merchant-market-field="state">OPEN · FROZEN</p>
+        </div>
+        <p class="mono merchant-market-id" data-merchant-market-field="market-id">—</p>
+        <div class="buyer-policy-metrics">
+          <div><span>QUANTITY</span><strong data-merchant-market-field="requested-quantity">—</strong></div>
+          <div><span>MINIMUM ACCEPTABLE</span><strong data-merchant-market-field="minimum-quantity">—</strong></div>
+          <div><span>MAXIMUM SUPPLIERS</span><strong data-merchant-market-field="max-suppliers">—</strong></div>
+          <div><span>BUDGET</span><strong data-merchant-market-field="budget">—</strong><small>PAISE</small></div>
+        </div>
+        <div class="buyer-rule-columns">
+          <section><p class="micro-label">HARD CONSTRAINTS</p><div class="buyer-rule-list" data-merchant-market-field="hard-rules"></div></section>
+          <section><p class="micro-label">SOFT PREFERENCES</p><div class="buyer-rule-list" data-merchant-market-field="soft-rules"></div></section>
+        </div>
+
+        <div class="merchant-proposal" id="merchant-proposal">
+          <div class="merchant-proposal-head">
+            <div><p class="micro-label">AI PROPOSAL</p><h3 data-merchant-proposal-field="title">No proposal</h3></div>
+            <span class="merchant-proposal-state" data-merchant-proposal-field="state">READY</span>
+          </div>
+          <p data-merchant-proposal-field="message">AI is invoked only when the merchant explicitly requests a proposal.</p>
+          <div class="merchant-proposal-lines" data-merchant-proposal-field="lines"></div>
+          <div class="buyer-provider-line" data-merchant-proposal-field="provider" hidden>
+            <div><span>EXTERNALLY SUPPLIED OPENAI-COMPATIBLE PROVIDER</span><strong data-merchant-proposal-field="provider-name">—</strong></div>
+            <div><span>MODEL</span><strong data-merchant-proposal-field="model">—</strong></div>
+          </div>
+          <div class="merchant-actions">
+            <button class="button button-primary" id="request-merchant-proposal" type="button"><span>Ask merchant AI</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+            <button class="button button-secondary" id="submit-merchant-proposal" type="button" hidden><span>Validate &amp; submit signed offer</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+          </div>
+          <p class="action-note" id="merchant-action-status" role="status" aria-live="polite">Select an eligible open market. No AI call has occurred.</p>
+        </div>
       </section>
     </main>
 
