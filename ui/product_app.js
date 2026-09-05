@@ -43,6 +43,14 @@
   const clearingResult = document.querySelector("#clearing-result");
   const clearingWinnerList = document.querySelector("#clearing-winner-list");
   const clearingActionStatus = document.querySelector("#clearing-action-status");
+  const runtimeAuthoritySequence = document.querySelector("#runtime-authority-sequence");
+  const runtimeCertificateLines = document.querySelector("#runtime-proof-lines");
+  const runtimeTransferLines = document.querySelector("#runtime-transfer-lines");
+  const runtimeTamperButton = document.querySelector("#test-runtime-tamper");
+  const runtimeTamperResult = document.querySelector("#runtime-tamper-result");
+  const runtimeAuthorizeButton = document.querySelector("#authorize-runtime-execution");
+  const runtimeAuthorityStatus = document.querySelector("#runtime-authority-status");
+  const runtimeExecutionPlan = document.querySelector("#runtime-execution-plan");
 
   let currentMarketId = null;
   let running = false;
@@ -55,6 +63,10 @@
   let currentClearingState = null;
   let clearingRunning = false;
   let clearingSnapshotRequest = 0;
+  let authorityRunning = false;
+  let authoritySnapshotRequest = 0;
+  let tamperRequestGeneration = 0;
+  let authorizeRequestGeneration = 0;
   let reconcileActiveWorkspace = () => {};
 
   const setText = (selector, value) => {
@@ -823,6 +835,7 @@
   };
 
   const forgetClearingSelection = () => {
+    clearRuntimeAuthorityPresentation();
     currentClearingMarketId = null;
     currentClearingState = null;
     if (clearingSnapshot) clearingSnapshot.hidden = true;
@@ -912,6 +925,259 @@
     });
   };
 
+  const setRuntimeAuthorityText = (field, value) => {
+    const target = document.querySelector(`[data-authority-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const setRuntimeTamperText = (field, value) => {
+    const target = document.querySelector(`[data-tamper-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const setRuntimeExecutionText = (field, value) => {
+    const target = document.querySelector(`[data-execution-field="${field}"]`);
+    if (target) target.textContent = String(value);
+  };
+
+  const resetRuntimeTamper = () => {
+    ++tamperRequestGeneration;
+    if (runtimeTamperResult) runtimeTamperResult.hidden = true;
+    setRuntimeTamperText("verifier-failure-code", "—");
+    setRuntimeTamperText("governor-failure-code", "—");
+    setRuntimeTamperText("control-copy", "—");
+    setRuntimeTamperText("money-copy", "—");
+  };
+
+  const setAuthorityRunning = (value) => {
+    authorityRunning = value;
+    if (runtimeTamperButton instanceof HTMLButtonElement) {
+      runtimeTamperButton.disabled = value;
+    }
+    if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+      runtimeAuthorizeButton.disabled = value;
+    }
+  };
+
+  const clearRuntimeAuthorityPresentation = () => {
+    ++authorizeRequestGeneration;
+    ++authoritySnapshotRequest;
+    if (runtimeAuthoritySequence) runtimeAuthoritySequence.hidden = true;
+    if (runtimeExecutionPlan) runtimeExecutionPlan.hidden = true;
+    runtimeCertificateLines?.replaceChildren();
+    runtimeTransferLines?.replaceChildren();
+    resetRuntimeTamper();
+    if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+      runtimeAuthorizeButton.hidden = false;
+      const label = runtimeAuthorizeButton.querySelector("span");
+      if (label) label.textContent = "Authorize provider-neutral execution";
+    }
+    setAuthorityRunning(false);
+  };
+
+  const runtimeFact = (labelText, value) => {
+    const fact = document.createElement("div");
+    const label = document.createElement("span");
+    const data = document.createElement("strong");
+    label.textContent = String(labelText);
+    data.textContent = String(value);
+    fact.append(label, data);
+    return fact;
+  };
+
+  const renderRuntimeCertificateLines = (lines) => {
+    if (!runtimeCertificateLines) return;
+    runtimeCertificateLines.replaceChildren();
+    if (!Array.isArray(lines) || lines.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "runtime-empty-lines";
+      empty.textContent = "No executable allocation lines exist in this valid certificate.";
+      runtimeCertificateLines.append(empty);
+      return;
+    }
+    lines.forEach((line) => {
+      const card = document.createElement("article");
+      const heading = document.createElement("div");
+      const name = document.createElement("strong");
+      const identity = document.createElement("small");
+      const facts = document.createElement("div");
+      card.className = "runtime-line-card";
+      heading.className = "runtime-line-heading";
+      facts.className = "runtime-line-facts";
+      name.textContent = String(line.display_name);
+      identity.textContent = String(line.merchant_id);
+      heading.append(name, identity);
+      [
+        ["OFFER ID", line.offer_id],
+        ["SKU ID", line.sku_id],
+        ["ALLOCATED", line.allocated_quantity],
+        ["UNIT PAYMENT · PAISE", line.unit_payment_paise],
+        ["LINE PAYMENT · PAISE", line.line_payment_paise],
+      ].forEach(([label, value]) => facts.append(runtimeFact(label, value)));
+      card.append(heading, facts);
+      runtimeCertificateLines.append(card);
+    });
+  };
+
+  const tamperGovernorFailureCode = "CERTIFICATE_NOT_VERIFIED";
+
+  const renderRuntimeTransferLines = (lines) => {
+    if (!runtimeTransferLines) return;
+    runtimeTransferLines.replaceChildren();
+    if (!Array.isArray(lines)) return;
+    lines.forEach((line) => {
+      const card = document.createElement("article");
+      const heading = document.createElement("div");
+      const name = document.createElement("strong");
+      const recipient = document.createElement("small");
+      const facts = document.createElement("div");
+      card.className = "runtime-line-card";
+      heading.className = "runtime-line-heading";
+      facts.className = "runtime-line-facts";
+      name.textContent = String(line.display_name);
+      recipient.textContent = String(line.recipient_id);
+      heading.append(name, recipient);
+      [
+        ["MERCHANT ID", line.merchant_id],
+        ["ALLOCATED", line.allocated_quantity],
+        ["TRANSFER · PAISE", line.transfer_amount_paise],
+      ].forEach(([label, value]) => facts.append(runtimeFact(label, value)));
+      card.append(heading, facts);
+      runtimeTransferLines.append(card);
+    });
+  };
+
+  const renderRuntimeAuthority = (payload) => {
+    const certificate = payload?.certificate;
+    const allocation = certificate?.allocation;
+    const verifier = payload?.verifier;
+    const governor = payload?.governor;
+    if (
+      payload?.market?.state !== "CLOSED" ||
+      !certificate ||
+      typeof certificate !== "object" ||
+      !allocation ||
+      typeof allocation !== "object" ||
+      !Array.isArray(allocation.lines) ||
+      verifier?.verified !== true ||
+      !governor ||
+      typeof governor !== "object"
+    ) {
+      throw new Error("The runtime authority response failed closed.");
+    }
+    if (String(payload.market.market_id) !== currentClearingMarketId) return;
+    resetRuntimeTamper();
+    setRuntimeAuthorityText("proof-id", certificate.certificate_id);
+    setRuntimeAuthorityText("proof-digest", certificate.digest_sha256);
+    setRuntimeAuthorityText("policy-commitment", certificate.buyer_policy_commitment_sha256);
+    setRuntimeAuthorityText("evidence-count", certificate.merchant_offer_evidence_count);
+    setRuntimeAuthorityText("replay-state", "VERIFIED");
+    renderRuntimeCertificateLines(allocation.lines);
+    if (runtimeAuthoritySequence) runtimeAuthoritySequence.hidden = false;
+    if (runtimeExecutionPlan) runtimeExecutionPlan.hidden = true;
+    if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+      runtimeAuthorizeButton.hidden = false;
+      const label = runtimeAuthorizeButton.querySelector("span");
+      if (label) label.textContent = "Authorize provider-neutral execution";
+    }
+
+    if (governor.state === "AUTHORIZED") {
+      const plan = governor.execution_plan;
+      if (!plan || typeof plan !== "object" || !Array.isArray(plan.transfer_obligations)) {
+        throw new Error("The persisted execution plan failed closed.");
+      }
+      setRuntimeAuthorityText("execution-state", "GOVERNOR AUTHORIZED");
+      setRuntimeExecutionText("plan-version", plan.execution_plan_version);
+      setRuntimeExecutionText("execution-id", plan.execution_id);
+      setRuntimeExecutionText("proof-digest", plan.certificate_digest_sha256);
+      setRuntimeExecutionText(
+        "request-fingerprint",
+        plan.execution_request_fingerprint_sha256,
+      );
+      setRuntimeExecutionText("idempotency-key", plan.idempotency_key);
+      setRuntimeExecutionText("order-amount", plan.order_amount_paise);
+      renderRuntimeTransferLines(plan.transfer_obligations);
+      if (runtimeExecutionPlan) runtimeExecutionPlan.hidden = false;
+      if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+        runtimeAuthorizeButton.hidden = true;
+      }
+      if (runtimeAuthorityStatus) {
+        runtimeAuthorityStatus.textContent =
+          "Provider-neutral execution authority restored. No Razorpay action has occurred.";
+      }
+      return;
+    }
+    if (governor.state === "AUTHORIZING") {
+      setRuntimeAuthorityText("execution-state", "AUTHORIZATION NOT CONFIRMED");
+      if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+        const label = runtimeAuthorizeButton.querySelector("span");
+        if (label) label.textContent = "Resume authorization recovery";
+      }
+      if (runtimeAuthorityStatus) {
+        runtimeAuthorityStatus.textContent =
+          "The server retained one authority request. Deliberate recovery is available.";
+      }
+      return;
+    }
+    if (governor.state === "NOT_EXECUTABLE") {
+      setRuntimeAuthorityText("execution-state", "NO EXECUTABLE ALLOCATION");
+      if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+        runtimeAuthorizeButton.hidden = true;
+      }
+      if (runtimeAuthorityStatus) {
+        runtimeAuthorityStatus.textContent =
+          "The valid certificate is INFEASIBLE. No execution plan or money action exists.";
+      }
+      return;
+    }
+    if (governor.state !== "NOT_AUTHORIZED") {
+      throw new Error("The Governor state failed closed.");
+    }
+    setRuntimeAuthorityText("execution-state", "NO EXECUTION PLAN YET");
+    if (runtimeAuthorityStatus) {
+      runtimeAuthorityStatus.textContent =
+        "No Governor authorization has been requested. No Razorpay action has occurred.";
+    }
+  };
+
+  const loadRuntimeAuthority = async (marketId, { reconciliation = false } = {}) => {
+    const requestNumber = ++authoritySnapshotRequest;
+    setAuthorityRunning(true);
+    if (runtimeAuthorityStatus) {
+      runtimeAuthorityStatus.textContent = "Loading fresh certificate replay from the server.";
+    }
+    try {
+      const response = await requestJSON(
+        `/api/product-v1/markets/${encodeURIComponent(marketId)}/authority`,
+        { headers: {} },
+      );
+      if (requestNumber !== authoritySnapshotRequest || currentClearingMarketId !== marketId) {
+        return;
+      }
+      if (!response.ok) throw new Error("The runtime authority could not be verified.");
+      renderRuntimeAuthority(response.payload);
+      if (
+        reconciliation &&
+        response.payload?.governor?.state !== "AUTHORIZED" &&
+        runtimeAuthorityStatus
+      ) {
+        runtimeAuthorityStatus.textContent =
+          "Authorization was not observed complete. Deliberate recovery remains available.";
+      }
+    } catch (error) {
+      if (requestNumber !== authoritySnapshotRequest) return;
+      if (runtimeAuthoritySequence) runtimeAuthoritySequence.hidden = true;
+      if (runtimeAuthorityStatus) {
+        runtimeAuthorityStatus.textContent =
+          error instanceof Error
+            ? error.message
+            : "The runtime authority could not be verified.";
+      }
+    } finally {
+      if (requestNumber === authoritySnapshotRequest) setAuthorityRunning(false);
+    }
+  };
+
   const renderClearingSnapshot = (payload) => {
     const market = payload?.market;
     if (!market || typeof market !== "object" || !Array.isArray(payload.submitted_offers)) {
@@ -941,6 +1207,7 @@
     if (clearingSnapshot) clearingSnapshot.hidden = false;
 
     if (market.state === "OPEN") {
+      clearRuntimeAuthorityPresentation();
       if (clearingClosePanel) clearingClosePanel.hidden = false;
       if (clearingResult) clearingResult.hidden = true;
       if (clearingActionStatus) {
@@ -971,6 +1238,7 @@
         clearingActionStatus.textContent =
           "CLOSED · authoritative allocation restored from the server.";
       }
+      loadRuntimeAuthority(currentClearingMarketId);
     }
     try {
       window.localStorage.setItem(
@@ -986,6 +1254,7 @@
   const renderClearingNotConfirmed = () => {
     const confirmed = document.querySelector("[data-clearing-confirmed-result]");
     currentClearingState = null;
+    clearRuntimeAuthorityPresentation();
     if (clearingClosePanel) clearingClosePanel.hidden = true;
     if (clearingResult) clearingResult.hidden = false;
     if (confirmed) confirmed.hidden = true;
@@ -1036,6 +1305,7 @@
   };
 
   const selectClearingMarket = (marketId) => {
+    clearRuntimeAuthorityPresentation();
     currentClearingMarketId = marketId;
     currentClearingState = null;
     clearingMarketList?.querySelectorAll("button").forEach((button) => {
@@ -1189,6 +1459,135 @@
     refreshClearingMarkets.addEventListener("click", () => {
       if (clearingRunning) return;
       loadClearingMarkets(currentClearingMarketId);
+    });
+  }
+
+  if (runtimeTamperButton instanceof HTMLButtonElement) {
+    runtimeTamperButton.addEventListener("click", async () => {
+      if (authorityRunning || currentClearingState !== "CLOSED" || !currentClearingMarketId) {
+        return;
+      }
+      const marketId = currentClearingMarketId;
+      setAuthorityRunning(true);
+      resetRuntimeTamper();
+      const requestGeneration = tamperRequestGeneration;
+      try {
+        const response = await requestJSON(
+          `/api/product-v1/markets/${encodeURIComponent(marketId)}/authority/tamper`,
+          { method: "POST", body: "{}" },
+        );
+        if (
+          requestGeneration !== tamperRequestGeneration ||
+          currentClearingMarketId !== marketId
+        ) {
+          return;
+        }
+        const payload = response.payload;
+        const verifier = payload?.verifier;
+        const governor = payload?.governor;
+        if (
+          !response.ok ||
+          payload?.market_id !== marketId ||
+          payload.persisted_certificate_mutated !== false ||
+          !verifier ||
+          typeof verifier !== "object" ||
+          Array.isArray(verifier) ||
+          verifier.verified !== false ||
+          verifier.failure_code !== "POLICY_COMMITMENT_MISMATCH" ||
+          !governor ||
+          typeof governor !== "object" ||
+          Array.isArray(governor) ||
+          governor.invoked !== true ||
+          governor.authorized !== false ||
+          governor.failure_code !== tamperGovernorFailureCode ||
+          governor.execution_plan_created !== false ||
+          governor.persistent_reservation_created !== false ||
+          payload.provider_invoked !== false ||
+          payload.truth_class !== "DETERMINISTIC FIXTURE" ||
+          typeof payload.altered_copy_authority !== "string" ||
+          payload.altered_copy_authority.trim().length === 0 ||
+          typeof payload.altered_copy_money_action !== "string" ||
+          payload.altered_copy_money_action.trim().length === 0
+        ) {
+          throw new Error("The controlled tamper path failed closed.");
+        }
+        setRuntimeTamperText("verifier-failure-code", verifier.failure_code);
+        setRuntimeTamperText("governor-failure-code", governor.failure_code);
+        setRuntimeTamperText("control-copy", payload.altered_copy_authority);
+        setRuntimeTamperText("money-copy", payload.altered_copy_money_action);
+        if (runtimeTamperResult) runtimeTamperResult.hidden = false;
+      } catch (error) {
+        if (
+          requestGeneration !== tamperRequestGeneration ||
+          currentClearingMarketId !== marketId
+        ) {
+          return;
+        }
+        if (runtimeAuthorityStatus) {
+          runtimeAuthorityStatus.textContent =
+            error instanceof Error
+              ? error.message
+              : "The controlled tamper path failed closed.";
+        }
+      } finally {
+        if (
+          requestGeneration === tamperRequestGeneration &&
+          currentClearingMarketId === marketId
+        ) {
+          setAuthorityRunning(false);
+        }
+      }
+    });
+  }
+
+  if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
+    runtimeAuthorizeButton.addEventListener("click", async () => {
+      if (authorityRunning || currentClearingState !== "CLOSED" || !currentClearingMarketId) {
+        return;
+      }
+      const marketId = currentClearingMarketId;
+      const requestGeneration = ++authorizeRequestGeneration;
+      setAuthorityRunning(true);
+      if (runtimeAuthorityStatus) {
+        runtimeAuthorityStatus.textContent = "Requesting one explicit Money Governor authorization.";
+      }
+      try {
+        const response = await requestJSON(
+          `/api/product-v1/markets/${encodeURIComponent(marketId)}/authority/authorize`,
+          { method: "POST", body: "{}" },
+        );
+        if (
+          requestGeneration !== authorizeRequestGeneration ||
+          currentClearingMarketId !== marketId
+        ) {
+          return;
+        }
+        if (!response.ok) {
+          const code = response.payload?.error?.code || response.payload?.code || "AUTHORIZATION_FAILED";
+          if (runtimeAuthorityStatus) runtimeAuthorityStatus.textContent = String(code);
+          return;
+        }
+        renderRuntimeAuthority(response.payload);
+      } catch (_error) {
+        if (
+          requestGeneration !== authorizeRequestGeneration ||
+          currentClearingMarketId !== marketId
+        ) {
+          return;
+        }
+        if (runtimeAuthorityStatus) {
+          runtimeAuthorityStatus.textContent =
+            "Authorization outcome not confirmed. Re-reading server authority.";
+        }
+        await loadRuntimeAuthority(marketId, { reconciliation: true });
+      } finally {
+        if (
+          requestGeneration === authorizeRequestGeneration &&
+          currentClearingMarketId === marketId
+        ) {
+          setAuthorityRunning(false);
+        }
+      }
     });
   }
 

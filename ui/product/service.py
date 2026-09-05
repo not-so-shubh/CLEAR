@@ -6,11 +6,12 @@ import json
 import os
 import sqlite3
 from collections.abc import Callable, Mapping
+from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import cast
+from typing import Never, cast
 from uuid import uuid4
 
 from cryptography.hazmat.primitives import serialization
@@ -31,10 +32,12 @@ from clear_market.ai import (
     interpret_buyer_intent_v1,
     propose_merchant_offer_candidate_v1,
 )
-from clear_market.canonical import canonical_json_bytes
+from clear_market.canonical import CANONICALIZATION_VERSION, canonical_json_bytes
 from clear_market.canonical.serialization import canonical_utc_datetime
 from clear_market.certificate.v2 import (
+    ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION,
     AllocationCertificateV2,
+    AllocationClaimStatusV2,
     MerchantOfferAdmissionDecisionV2,
     MerchantOfferEvidenceV2,
     allocation_certificate_v2_digest,
@@ -73,12 +76,39 @@ from clear_market.commerce import (
     verify_canonical_signed_merchant_offer_v2,
 )
 from clear_market.domain import CanonicalUUID4, Money
+from clear_market.execution import (
+    BuyerFinancialAuthorizationV1,
+    ExecutionAuthorizationRequestV1,
+    ExecutionPlanV1,
+    ExecutionTransferLineV1,
+    MarketExecutionAuthorizationV1,
+    MarketExecutionStateV1,
+    MerchantRecipientAuthorizationV1,
+    MoneyGovernorError,
+    MoneyGovernorFailureCode,
+    authorize_execution_v1,
+    canonical_execution_authorization_request_v1_bytes,
+    execution_request_fingerprint_v1,
+)
 from clear_market.mechanism.v2 import (
     HETEROGENEOUS_PAY_AS_BID_V2_MECHANISM_VERSION,
     QUANTITY_COST_SOFT_OBJECTIVE_V2_VERSION,
     allocate_market_v2,
 )
-from clear_market.verification.v2 import verify_allocation_certificate_v2
+from clear_market.persistence import (
+    ExecutionReservationV1,
+    PersistenceError,
+    SQLiteFinancialLedgerV1,
+)
+from clear_market.persistence.sqlite import (
+    SQLITE_FINANCIAL_LEDGER_SCHEMA_VERSION,
+    _verify_foreign_key_integrity,
+    _verify_schema,
+)
+from clear_market.verification.v2 import (
+    AllocationCertificateVerificationResultV2,
+    verify_allocation_certificate_v2,
+)
 
 from .ai import (
     PROVIDER_IDENTITY,
@@ -99,6 +129,7 @@ from .models import (
 from .policy import CanonicalBuyerPolicyError, parse_canonical_buyer_policy_v2
 from .store import (
     BuyerDraftRecord,
+    ExecutionAuthorityRecord,
     MarketRecord,
     MerchantProposalRecord,
     MerchantRecord,
@@ -147,6 +178,8 @@ class ProductErrorCode(StrEnum):
     DRAFT_NOT_FREEZABLE = "DRAFT_NOT_FREEZABLE"
     PROPOSAL_NOT_AVAILABLE = "PROPOSAL_NOT_AVAILABLE"
     PROPOSAL_NOT_SUBMITTABLE = "PROPOSAL_NOT_SUBMITTABLE"
+    MARKET_NOT_CLOSED = "MARKET_NOT_CLOSED"
+    ALLOCATION_NOT_EXECUTABLE = "ALLOCATION_NOT_EXECUTABLE"
 
 
 class ProductServiceError(ValueError):
@@ -164,6 +197,16 @@ class _MerchantAuthority:
     catalog: MerchantCatalogV2
     inventory: InventorySnapshotV2
     economic_policy: MerchantEconomicPolicyV2
+
+
+@dataclass(frozen=True)
+class _ClosedAuthorityContext:
+    market: MarketRecord
+    policy: BuyerPolicyV2
+    result: ResultRecord
+    certificate: AllocationCertificateV2
+    trusted_identities: tuple[MerchantSigningIdentityV2, ...]
+    verification: AllocationCertificateVerificationResultV2
 
 
 def _new_uuid() -> str:
@@ -337,6 +380,180 @@ def _parse_merchant_candidate(data: bytes) -> MerchantOfferCandidateV2:
     return candidate
 
 
+class _PersistedDuplicateKeyError(ValueError):
+    pass
+
+
+def _reject_persisted_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _PersistedDuplicateKeyError
+        result[key] = value
+    return result
+
+
+def _reject_persisted_non_json_number(_value: str) -> Never:
+    raise ValueError("persisted value contains a non-JSON number")
+
+
+def _exact_persisted_object(
+    value: object,
+    expected_fields: frozenset[str],
+) -> dict[str, object]:
+    if type(value) is not dict:
+        raise ValueError("persisted value must be an object")
+    mapping = cast(dict[object, object], value)
+    if any(type(key) is not str for key in mapping) or set(mapping) != expected_fields:
+        raise ValueError("persisted object fields do not match")
+    return cast(dict[str, object], mapping)
+
+
+def _decode_persisted_json_object(data: object) -> dict[str, object]:
+    if type(data) is not bytes:
+        raise TypeError("persisted JSON must be bytes")
+    try:
+        value = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_reject_persisted_duplicate_keys,
+            parse_constant=_reject_persisted_non_json_number,
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        _PersistedDuplicateKeyError,
+        RecursionError,
+        ValueError,
+    ) as error:
+        raise ValueError("persisted JSON is invalid") from error
+    if type(value) is not dict:
+        raise ValueError("persisted JSON root must be an object")
+    return cast(dict[str, object], value)
+
+
+def _persisted_datetime(value: object) -> datetime:
+    if type(value) is not str:
+        raise TypeError("persisted timestamp must be text")
+    return _parse_persisted_timestamp(value)
+
+
+def _persisted_money(value: object) -> Money:
+    fields = _exact_persisted_object(value, frozenset({"amount_paise", "currency"}))
+    amount = fields["amount_paise"]
+    if type(amount) is not int or fields["currency"] != "INR":
+        raise ValueError("persisted money is invalid")
+    return Money(amount_paise=amount)
+
+
+def _parse_execution_request(data: object) -> ExecutionAuthorizationRequestV1:
+    try:
+        envelope = _exact_persisted_object(
+            _decode_persisted_json_object(data),
+            frozenset({"canonicalization_version", "payload_type", "payload"}),
+        )
+        if (
+            envelope["canonicalization_version"] != CANONICALIZATION_VERSION
+            or envelope["payload_type"] != "execution_authorization_request_v1"
+        ):
+            raise ValueError("persisted request envelope is invalid")
+        payload = _exact_persisted_object(
+            envelope["payload"],
+            frozenset(ExecutionAuthorizationRequestV1.model_fields),
+        )
+
+        market_values = dict(
+            _exact_persisted_object(
+                payload["market_execution_authorization"],
+                frozenset(MarketExecutionAuthorizationV1.model_fields),
+            )
+        )
+        state = market_values["state"]
+        if type(state) is not str:
+            raise ValueError("persisted market authorization state is invalid")
+        market_values["state"] = MarketExecutionStateV1(state)
+        market_values["valid_from"] = _persisted_datetime(market_values["valid_from"])
+        market_values["valid_until"] = _persisted_datetime(market_values["valid_until"])
+        market_authorization = MarketExecutionAuthorizationV1.model_validate(market_values)
+
+        buyer_values = dict(
+            _exact_persisted_object(
+                payload["buyer_financial_authorization"],
+                frozenset(BuyerFinancialAuthorizationV1.model_fields),
+            )
+        )
+        buyer_values["maximum_total_payment"] = _persisted_money(
+            buyer_values["maximum_total_payment"]
+        )
+        buyer_values["valid_from"] = _persisted_datetime(buyer_values["valid_from"])
+        buyer_values["valid_until"] = _persisted_datetime(buyer_values["valid_until"])
+        buyer_authorization = BuyerFinancialAuthorizationV1.model_validate(buyer_values)
+
+        raw_recipients = payload["merchant_recipient_authorizations"]
+        if type(raw_recipients) is not list:
+            raise ValueError("persisted recipient authorizations must be an array")
+        recipients = []
+        for raw_recipient in cast(list[object], raw_recipients):
+            recipient_values = dict(
+                _exact_persisted_object(
+                    raw_recipient,
+                    frozenset(MerchantRecipientAuthorizationV1.model_fields),
+                )
+            )
+            recipient_values["maximum_transfer"] = _persisted_money(
+                recipient_values["maximum_transfer"]
+            )
+            recipient_values["valid_from"] = _persisted_datetime(recipient_values["valid_from"])
+            recipient_values["valid_until"] = _persisted_datetime(recipient_values["valid_until"])
+            recipients.append(MerchantRecipientAuthorizationV1.model_validate(recipient_values))
+
+        request_values = dict(payload)
+        request_values["market_execution_authorization"] = market_authorization
+        request_values["buyer_financial_authorization"] = buyer_authorization
+        request_values["merchant_recipient_authorizations"] = tuple(recipients)
+        request = ExecutionAuthorizationRequestV1.model_validate(request_values)
+        if canonical_execution_authorization_request_v1_bytes(request) != data:
+            raise ValueError("persisted request is not canonical")
+        return request
+    except (KeyError, TypeError, ValueError, ValidationError) as error:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+
+
+def _canonical_execution_plan_bytes(plan: ExecutionPlanV1) -> bytes:
+    if type(plan) is not ExecutionPlanV1:
+        raise TypeError("plan must be exactly ExecutionPlanV1")
+    return canonical_json_bytes(plan.model_dump(mode="json", warnings=False))
+
+
+def _parse_execution_plan(data: object) -> ExecutionPlanV1:
+    try:
+        payload = _exact_persisted_object(
+            _decode_persisted_json_object(data),
+            frozenset(ExecutionPlanV1.model_fields),
+        )
+        raw_lines = payload["transfer_lines"]
+        if type(raw_lines) is not list:
+            raise ValueError("persisted transfer lines must be an array")
+        lines = []
+        for raw_line in cast(list[object], raw_lines):
+            line_values = dict(
+                _exact_persisted_object(
+                    raw_line,
+                    frozenset(ExecutionTransferLineV1.model_fields),
+                )
+            )
+            line_values["transfer_amount"] = _persisted_money(line_values["transfer_amount"])
+            lines.append(ExecutionTransferLineV1.model_validate(line_values))
+        plan_values = dict(payload)
+        plan_values["order_amount"] = _persisted_money(plan_values["order_amount"])
+        plan_values["transfer_lines"] = tuple(lines)
+        plan = ExecutionPlanV1.model_validate(plan_values)
+        if _canonical_execution_plan_bytes(plan) != data:
+            raise ValueError("persisted plan is not canonical")
+        return plan
+    except (KeyError, TypeError, ValueError, ValidationError) as error:
+        raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+
+
 class ProductService:
     """Runtime application path around frozen production CLEAR functions."""
 
@@ -345,8 +562,20 @@ class ProductService:
         db_path: Path | None = None,
         *,
         clock: Callable[[], datetime] = _utc_now,
+        financial_ledger_path: Path | None = None,
     ) -> None:
         self.store = ProductStore(db_path if db_path is not None else configured_product_db_path())
+        store_path = self.store.path
+        default_ledger_name = (
+            f"{store_path.stem}-financial-ledger{store_path.suffix}"
+            if store_path.suffix
+            else f"{store_path.name}-financial-ledger"
+        )
+        self._financial_ledger_path = (
+            financial_ledger_path
+            if financial_ledger_path is not None
+            else store_path.with_name(default_ledger_name)
+        )
         self._clock = clock
 
     def _now(self) -> datetime:
@@ -2005,14 +2234,18 @@ class ProductService:
                 raise ProductServiceError(ProductErrorCode.MARKET_NOT_OPEN) from error
         return self._market_presentation(closed_market, result, buyer_policy)
 
-    def _validated_persisted_certificate(
+    def _replayed_persisted_certificate(
         self,
         connection: sqlite3.Connection,
         *,
         market: MarketRecord,
         policy: BuyerPolicyV2,
         result: ResultRecord,
-    ) -> AllocationCertificateV2:
+    ) -> tuple[
+        AllocationCertificateV2,
+        tuple[MerchantSigningIdentityV2, ...],
+        AllocationCertificateVerificationResultV2,
+    ]:
         try:
             certificate = parse_canonical_allocation_certificate_v2(result.canonical_certificate)
         except ValueError as error:
@@ -2036,7 +2269,615 @@ class ProductService:
         )
         if not verification.verified or not result.certificate_verified:
             raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        return certificate, tuple(trusted_identities), verification
+
+    def _validated_persisted_certificate(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        market: MarketRecord,
+        policy: BuyerPolicyV2,
+        result: ResultRecord,
+    ) -> AllocationCertificateV2:
+        certificate, _trusted_identities, _verification = self._replayed_persisted_certificate(
+            connection,
+            market=market,
+            policy=policy,
+            result=result,
+        )
         return certificate
+
+    def _load_closed_authority_context(
+        self,
+        connection: sqlite3.Connection,
+        market_id: str,
+    ) -> _ClosedAuthorityContext:
+        try:
+            market = self.store.get_market(connection, market_id)
+        except (TypeError, ValueError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        if market is None:
+            raise ProductServiceError(ProductErrorCode.NOT_FOUND)
+        self._validate_market_lifecycle(market)
+        if market.state != "CLOSED":
+            raise ProductServiceError(ProductErrorCode.MARKET_NOT_CLOSED)
+        policy = self._load_policy(market)
+        try:
+            result = self.store.get_result(connection, market_id)
+        except (TypeError, ValueError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        if result is None:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        certificate, trusted_identities, verification = self._replayed_persisted_certificate(
+            connection,
+            market=market,
+            policy=policy,
+            result=result,
+        )
+        return _ClosedAuthorityContext(
+            market=market,
+            policy=policy,
+            result=result,
+            certificate=certificate,
+            trusted_identities=trusted_identities,
+            verification=verification,
+        )
+
+    @staticmethod
+    def _certified_payments_by_merchant(
+        certificate: AllocationCertificateV2,
+    ) -> dict[str, int]:
+        payments: dict[str, int] = {}
+        for line in certificate.allocation.lines:
+            payments[line.merchant_id] = (
+                payments.get(line.merchant_id, 0) + line.line_payment.amount_paise
+            )
+        return payments
+
+    def _new_execution_request(
+        self,
+        context: _ClosedAuthorityContext,
+        decision_time: datetime,
+    ) -> ExecutionAuthorizationRequestV1:
+        certificate = context.certificate
+        digest = context.result.certificate_digest
+        market_id = context.market.market_id
+        payments = self._certified_payments_by_merchant(certificate)
+        market_authorization = MarketExecutionAuthorizationV1(
+            authorization_id=_new_uuid(),
+            market_id=market_id,
+            certificate_digest_version=ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION,
+            certificate_digest_sha256=digest,
+            state=MarketExecutionStateV1.EXECUTABLE,
+            valid_from=decision_time,
+            valid_until=decision_time,
+        )
+        buyer_authorization = BuyerFinancialAuthorizationV1(
+            authorization_id=_new_uuid(),
+            buyer_id=context.policy.market_spec.buyer_id,
+            market_id=market_id,
+            certificate_digest_version=ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION,
+            certificate_digest_sha256=digest,
+            maximum_total_payment=context.policy.max_total_payment,
+            valid_from=decision_time,
+            valid_until=decision_time,
+        )
+        recipients = tuple(
+            MerchantRecipientAuthorizationV1(
+                authorization_id=_new_uuid(),
+                merchant_id=merchant_id,
+                recipient_id=f"clear.merchant:{merchant_id}",
+                market_id=market_id,
+                certificate_digest_version=ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION,
+                certificate_digest_sha256=digest,
+                maximum_transfer=Money(amount_paise=payments[merchant_id]),
+                valid_from=decision_time,
+                valid_until=decision_time,
+            )
+            for merchant_id in sorted(payments)
+        )
+        return ExecutionAuthorizationRequestV1(
+            execution_id=_new_uuid(),
+            certificate_digest_version=ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION,
+            certificate_digest_sha256=digest,
+            market_id=market_id,
+            market_execution_authorization=market_authorization,
+            buyer_financial_authorization=buyer_authorization,
+            merchant_recipient_authorizations=recipients,
+        )
+
+    def _validate_execution_request(
+        self,
+        context: _ClosedAuthorityContext,
+        record: ExecutionAuthorityRecord,
+        request: ExecutionAuthorizationRequestV1,
+        decision_time: datetime,
+    ) -> None:
+        certificate = context.certificate
+        payments = self._certified_payments_by_merchant(certificate)
+        market_authorization = request.market_execution_authorization
+        buyer_authorization = request.buyer_financial_authorization
+        recipients = {
+            authorization.merchant_id: authorization
+            for authorization in request.merchant_recipient_authorizations
+        }
+        if (
+            request.execution_id != record.execution_id
+            or request.market_id != context.market.market_id
+            or request.certificate_digest_version != ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION
+            or request.certificate_digest_sha256 != context.result.certificate_digest
+            or market_authorization.state is not MarketExecutionStateV1.EXECUTABLE
+            or market_authorization.valid_from != decision_time
+            or market_authorization.valid_until != decision_time
+            or buyer_authorization.buyer_id != context.policy.market_spec.buyer_id
+            or buyer_authorization.maximum_total_payment != context.policy.max_total_payment
+            or buyer_authorization.valid_from != decision_time
+            or buyer_authorization.valid_until != decision_time
+            or set(recipients) != set(payments)
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        for merchant_id, authorization in recipients.items():
+            if (
+                authorization.recipient_id != f"clear.merchant:{merchant_id}"
+                or authorization.maximum_transfer != Money(amount_paise=payments[merchant_id])
+                or authorization.valid_from != decision_time
+                or authorization.valid_until != decision_time
+            ):
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+
+    def _validate_execution_plan(
+        self,
+        context: _ClosedAuthorityContext,
+        request: ExecutionAuthorizationRequestV1,
+        plan: ExecutionPlanV1,
+        fingerprint: str,
+    ) -> None:
+        if type(plan) is not ExecutionPlanV1:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        recipients = {
+            authorization.merchant_id: authorization
+            for authorization in request.merchant_recipient_authorizations
+        }
+        expected_lines = tuple(
+            (
+                index,
+                line.offer_id,
+                line.merchant_id,
+                line.sku_id,
+                recipients[line.merchant_id].authorization_id,
+                recipients[line.merchant_id].recipient_id,
+                line.allocated_quantity,
+                line.line_payment,
+            )
+            for index, line in enumerate(context.certificate.allocation.lines)
+        )
+        observed_lines = tuple(
+            (
+                line.allocation_line_index,
+                line.offer_id,
+                line.merchant_id,
+                line.sku_id,
+                line.recipient_authorization_id,
+                line.recipient_id,
+                line.allocated_quantity,
+                line.transfer_amount,
+            )
+            for line in plan.transfer_lines
+        )
+        if (
+            plan.execution_id != request.execution_id
+            or plan.certificate_id != context.certificate.certificate_id
+            or plan.certificate_digest_version != ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION
+            or plan.certificate_digest_sha256 != context.result.certificate_digest
+            or plan.market_id != context.market.market_id
+            or plan.buyer_id != context.policy.market_spec.buyer_id
+            or plan.market_execution_authorization_id
+            != request.market_execution_authorization.authorization_id
+            or plan.buyer_financial_authorization_id
+            != request.buyer_financial_authorization.authorization_id
+            or plan.execution_request_fingerprint_sha256 != fingerprint
+            or plan.order_amount != context.certificate.allocation.total_payment
+            or observed_lines != expected_lines
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+
+    def _validated_execution_record(
+        self,
+        context: _ClosedAuthorityContext,
+        record: ExecutionAuthorityRecord,
+    ) -> tuple[ExecutionAuthorizationRequestV1, datetime, ExecutionPlanV1 | None]:
+        try:
+            decision_time = _persisted_datetime(record.decision_time)
+            created_at = _persisted_datetime(record.created_at)
+            decision_text = canonical_utc_datetime(decision_time)
+        except (TypeError, ValueError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        request = _parse_execution_request(record.canonical_request)
+        try:
+            fingerprint = execution_request_fingerprint_v1(request)
+        except (TypeError, ValueError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        if (
+            record.market_id != context.market.market_id
+            or record.state not in {"AUTHORIZING", "AUTHORIZED"}
+            or record.decision_time != decision_text
+            or created_at != decision_time
+            or record.execution_request_fingerprint_sha256 != fingerprint
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        self._validate_execution_request(context, record, request, decision_time)
+        if record.state == "AUTHORIZING":
+            if record.canonical_plan is not None or record.authorized_at is not None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            return request, decision_time, None
+        if record.canonical_plan is None or record.authorized_at != decision_text:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        plan = _parse_execution_plan(record.canonical_plan)
+        self._validate_execution_plan(context, request, plan, fingerprint)
+        return request, decision_time, plan
+
+    def _validate_financial_reservation(
+        self,
+        context: _ClosedAuthorityContext,
+        record: ExecutionAuthorityRecord,
+        decision_time: datetime,
+    ) -> None:
+        if not self._financial_ledger_path.is_file():
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        try:
+            ledger_uri = f"{self._financial_ledger_path.resolve().as_uri()}?mode=ro"
+            expected_columns = {
+                "execution_id",
+                "certificate_digest_version",
+                "certificate_digest_sha256",
+                "market_id",
+                "execution_request_fingerprint_sha256",
+                "reserved_at",
+            }
+            with closing(
+                sqlite3.connect(
+                    ledger_uri,
+                    uri=True,
+                    isolation_level=None,
+                )
+            ) as connection:
+                connection.row_factory = sqlite3.Row
+                version_row = connection.execute("PRAGMA user_version").fetchone()
+                if (
+                    version_row is None
+                    or type(version_row[0]) is not int
+                    or version_row[0] != SQLITE_FINANCIAL_LEDGER_SCHEMA_VERSION
+                ):
+                    raise ValueError("financial ledger schema version is invalid")
+                _verify_schema(connection)
+                _verify_foreign_key_integrity(connection)
+                rows = connection.execute(
+                    """
+                    SELECT * FROM clear_execution_reservations_v1
+                    WHERE execution_id = ?
+                    LIMIT 2
+                    """,
+                    (record.execution_id,),
+                ).fetchall()
+            if len(rows) != 1 or set(rows[0].keys()) != expected_columns:
+                raise ValueError("financial reservation row is missing or malformed")
+            row = rows[0]
+            reservation = ExecutionReservationV1(
+                execution_id=row["execution_id"],
+                certificate_digest_version=row["certificate_digest_version"],
+                certificate_digest_sha256=row["certificate_digest_sha256"],
+                market_id=row["market_id"],
+                execution_request_fingerprint_sha256=(row["execution_request_fingerprint_sha256"]),
+                reserved_at=_persisted_datetime(row["reserved_at"]),
+            )
+        except (
+            PersistenceError,
+            sqlite3.Error,
+            OSError,
+            TypeError,
+            ValueError,
+            ValidationError,
+        ) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        if (
+            reservation.execution_id != record.execution_id
+            or reservation.market_id != context.market.market_id
+            or reservation.certificate_digest_version != ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION
+            or reservation.certificate_digest_sha256 != context.result.certificate_digest
+            or reservation.execution_request_fingerprint_sha256
+            != record.execution_request_fingerprint_sha256
+            or reservation.reserved_at != decision_time
+        ):
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+
+    def _merchant_display_names(
+        self,
+        connection: sqlite3.Connection,
+        certificate: AllocationCertificateV2,
+    ) -> dict[str, str]:
+        names: dict[str, str] = {}
+        for line in certificate.allocation.lines:
+            merchant = self.store.get_merchant(connection, line.merchant_id)
+            if merchant is None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            names[line.merchant_id] = merchant.display_name
+        return names
+
+    @staticmethod
+    def _certificate_authority_presentation(
+        context: _ClosedAuthorityContext,
+        merchant_names: dict[str, str],
+    ) -> dict[str, object]:
+        certificate = context.certificate
+        allocation = certificate.allocation
+        verification = context.verification
+        return {
+            "market": {"market_id": context.market.market_id, "state": "CLOSED"},
+            "certificate": {
+                "certificate_version": certificate.certificate_version,
+                "certificate_id": certificate.certificate_id,
+                "digest_version": ALLOCATION_CERTIFICATE_V2_DIGEST_VERSION,
+                "digest_sha256": context.result.certificate_digest,
+                "buyer_policy_commitment_sha256": (certificate.buyer_policy_commitment_sha256),
+                "merchant_offer_evidence_count": len(certificate.merchant_offer_evidence),
+                "allocation": {
+                    "status": allocation.status.value,
+                    "requested_quantity": context.policy.market_spec.requested_quantity,
+                    "fulfilled_quantity": allocation.fulfilled_quantity,
+                    "winner_count": allocation.winner_count,
+                    "total_payment_paise": allocation.total_payment.amount_paise,
+                    "lines": [
+                        {
+                            "offer_id": line.offer_id,
+                            "merchant_id": line.merchant_id,
+                            "display_name": merchant_names[line.merchant_id],
+                            "sku_id": line.sku_id,
+                            "allocated_quantity": line.allocated_quantity,
+                            "unit_payment_paise": line.unit_payment.amount_paise,
+                            "line_payment_paise": line.line_payment.amount_paise,
+                        }
+                        for line in allocation.lines
+                    ],
+                },
+                "truth_class": "REAL LOCAL PRODUCTION LOGIC",
+            },
+            "verifier": {
+                "verified": verification.verified,
+                "failure_code": (
+                    None if verification.failure_code is None else verification.failure_code.value
+                ),
+                "failed_evidence_index": verification.failed_evidence_index,
+                "truth_class": "REAL LOCAL PRODUCTION LOGIC",
+            },
+        }
+
+    @staticmethod
+    def _execution_plan_presentation(
+        plan: ExecutionPlanV1,
+        merchant_names: dict[str, str],
+    ) -> dict[str, object]:
+        return {
+            "execution_plan_version": plan.execution_plan_version,
+            "execution_id": plan.execution_id,
+            "certificate_digest_version": plan.certificate_digest_version,
+            "certificate_digest_sha256": plan.certificate_digest_sha256,
+            "execution_request_fingerprint_version": (plan.execution_request_fingerprint_version),
+            "execution_request_fingerprint_sha256": (plan.execution_request_fingerprint_sha256),
+            "idempotency_key": plan.idempotency_key,
+            "order_amount_paise": plan.order_amount.amount_paise,
+            "transfer_obligations": [
+                {
+                    "merchant_id": line.merchant_id,
+                    "display_name": merchant_names[line.merchant_id],
+                    "offer_id": line.offer_id,
+                    "sku_id": line.sku_id,
+                    "allocated_quantity": line.allocated_quantity,
+                    "transfer_amount_paise": line.transfer_amount.amount_paise,
+                    "recipient_id": line.recipient_id,
+                }
+                for line in plan.transfer_lines
+            ],
+            "truth_class": "REAL LOCAL PRODUCTION LOGIC",
+            "provider_action": "NOT DEMONSTRATED",
+        }
+
+    def _authority_presentation(
+        self,
+        connection: sqlite3.Connection,
+        context: _ClosedAuthorityContext,
+        record: ExecutionAuthorityRecord | None,
+    ) -> dict[str, object]:
+        merchant_names = self._merchant_display_names(connection, context.certificate)
+        presentation = self._certificate_authority_presentation(context, merchant_names)
+        allocation = context.certificate.allocation
+        if allocation.status is AllocationClaimStatusV2.INFEASIBLE:
+            if record is not None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            presentation["governor"] = {
+                "state": "NOT_EXECUTABLE",
+                "failure_code": ProductErrorCode.ALLOCATION_NOT_EXECUTABLE.value,
+            }
+            return presentation
+        if record is None:
+            presentation["governor"] = {"state": "NOT_AUTHORIZED"}
+            return presentation
+        _request, decision_time, plan = self._validated_execution_record(context, record)
+        if plan is None:
+            presentation["governor"] = {"state": "AUTHORIZING"}
+            return presentation
+        self._validate_financial_reservation(context, record, decision_time)
+        presentation["governor"] = {
+            "state": "AUTHORIZED",
+            "execution_plan": self._execution_plan_presentation(plan, merchant_names),
+        }
+        return presentation
+
+    def get_market_authority(self, market_id: str) -> dict[str, object]:
+        market_id = _parse_uuid(market_id)
+        with self.store.connection() as connection:
+            context = self._load_closed_authority_context(connection, market_id)
+            record = self.store.get_execution_authority(connection, market_id)
+            return self._authority_presentation(connection, context, record)
+
+    def test_market_authority_tamper(self, market_id: str) -> dict[str, object]:
+        market_id = _parse_uuid(market_id)
+        with self.store.connection() as connection:
+            context = self._load_closed_authority_context(connection, market_id)
+            original_bytes = context.result.canonical_certificate
+            original_authority = self.store.get_execution_authority(connection, market_id)
+            altered_commitment = (
+                "0" * 64
+                if context.certificate.buyer_policy_commitment_sha256 != "0" * 64
+                else "1" * 64
+            )
+            certificate_values = {
+                name: context.certificate.__dict__[name]
+                for name in AllocationCertificateV2.model_fields
+            }
+            certificate_values["buyer_policy_commitment_sha256"] = altered_commitment
+            try:
+                altered = AllocationCertificateV2.model_validate(certificate_values)
+                verification = verify_allocation_certificate_v2(
+                    altered,
+                    trusted_signing_identities=context.trusted_identities,
+                )
+            except (KeyError, TypeError, ValueError, ValidationError) as error:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+            if (
+                verification.verified
+                or verification.failure_code is None
+                or verification.failure_code.value != "POLICY_COMMITMENT_MISMATCH"
+            ):
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            decision_time = self._now()
+            request = self._new_execution_request(context, decision_time)
+            governor_failure: MoneyGovernorFailureCode | None = None
+            try:
+                with SQLiteFinancialLedgerV1(":memory:") as ephemeral_ledger:
+                    try:
+                        plan = authorize_execution_v1(
+                            certificate=altered,
+                            trusted_signing_identities=context.trusted_identities,
+                            request=request,
+                            decision_time=decision_time,
+                            ledger=ephemeral_ledger,
+                        )
+                    except MoneyGovernorError as error:
+                        governor_failure = error.code
+                        plan = None
+                    ephemeral_reservation = ephemeral_ledger.get_execution_reservation(
+                        request.execution_id
+                    )
+            except (PersistenceError, TypeError, ValueError) as error:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+            unchanged_result = self.store.get_result(connection, market_id)
+            unchanged_authority = self.store.get_execution_authority(connection, market_id)
+            if (
+                governor_failure is not MoneyGovernorFailureCode.CERTIFICATE_NOT_VERIFIED
+                or plan is not None
+                or ephemeral_reservation is not None
+                or unchanged_result is None
+                or unchanged_result.canonical_certificate != original_bytes
+                or unchanged_authority != original_authority
+            ):
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+        return {
+            "market_id": market_id,
+            "tamper_target": "buyer_policy_commitment_sha256",
+            "persisted_certificate_mutated": False,
+            "verifier": {
+                "verified": verification.verified,
+                "failure_code": verification.failure_code.value,
+            },
+            "governor": {
+                "invoked": True,
+                "authorized": False,
+                "failure_code": governor_failure.value,
+                "execution_plan_created": False,
+                "persistent_reservation_created": False,
+            },
+            "provider_invoked": False,
+            "altered_copy_authority": "THE MONEY GOVERNOR REJECTED THIS ALTERED COPY.",
+            "altered_copy_money_action": "NO MONEY ACTION FOR THE ALTERED COPY.",
+            "truth_class": "DETERMINISTIC FIXTURE",
+        }
+
+    def authorize_market_execution(self, market_id: str) -> dict[str, object]:
+        market_id = _parse_uuid(market_id)
+        with self.store.connection(write=True) as connection:
+            context = self._load_closed_authority_context(connection, market_id)
+            if context.certificate.allocation.status is not AllocationClaimStatusV2.FEASIBLE:
+                raise ProductServiceError(ProductErrorCode.ALLOCATION_NOT_EXECUTABLE)
+            record = self.store.get_execution_authority(connection, market_id)
+            if record is None:
+                decision_time = self._now()
+                request = self._new_execution_request(context, decision_time)
+                canonical_request = canonical_execution_authorization_request_v1_bytes(request)
+                fingerprint = execution_request_fingerprint_v1(request)
+                decision_text = canonical_utc_datetime(decision_time)
+                record = ExecutionAuthorityRecord(
+                    market_id=market_id,
+                    execution_id=request.execution_id,
+                    decision_time=decision_text,
+                    canonical_request=canonical_request,
+                    execution_request_fingerprint_sha256=fingerprint,
+                    state="AUTHORIZING",
+                    canonical_plan=None,
+                    created_at=decision_text,
+                    authorized_at=None,
+                )
+                self.store.insert_execution_authority(connection, record)
+            request, decision_time, existing_plan = self._validated_execution_record(
+                context, record
+            )
+
+        if existing_plan is not None:
+            return self.get_market_authority(market_id)
+
+        try:
+            with SQLiteFinancialLedgerV1(str(self._financial_ledger_path)) as ledger:
+                plan = authorize_execution_v1(
+                    certificate=context.certificate,
+                    trusted_signing_identities=context.trusted_identities,
+                    request=request,
+                    decision_time=decision_time,
+                    ledger=ledger,
+                )
+        except MoneyGovernorError as error:
+            if error.code is MoneyGovernorFailureCode.ALLOCATION_NOT_EXECUTABLE:
+                raise ProductServiceError(ProductErrorCode.ALLOCATION_NOT_EXECUTABLE) from error
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        except (PersistenceError, TypeError, ValueError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+
+        fingerprint = record.execution_request_fingerprint_sha256
+        self._validate_execution_plan(context, request, plan, fingerprint)
+        try:
+            canonical_plan = _canonical_execution_plan_bytes(plan)
+        except (TypeError, ValueError) as error:
+            raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        with self.store.connection(write=True) as connection:
+            current_context = self._load_closed_authority_context(connection, market_id)
+            current_record = self.store.get_execution_authority(connection, market_id)
+            if current_record is None:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            current_request, current_decision_time, _current_plan = (
+                self._validated_execution_record(current_context, current_record)
+            )
+            if current_request != request or current_decision_time != decision_time:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID)
+            self._validate_execution_plan(current_context, current_request, plan, fingerprint)
+            try:
+                self.store.mark_execution_authorized(
+                    connection,
+                    market_id=market_id,
+                    execution_id=request.execution_id,
+                    canonical_plan=canonical_plan,
+                    authorized_at=canonical_utc_datetime(decision_time),
+                )
+            except RuntimeError as error:
+                raise ProductServiceError(ProductErrorCode.PERSISTED_DATA_INVALID) from error
+        return self.get_market_authority(market_id)
 
     def get_market(self, market_id: str) -> dict[str, object]:
         market_id = _parse_uuid(market_id)

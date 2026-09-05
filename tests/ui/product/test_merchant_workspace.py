@@ -835,6 +835,9 @@ def test_manual_offer_rejects_existing_merchant_proposal_without_mutation(
 def test_merchant_workspace_client_restores_from_get_and_mutates_only_on_explicit_actions() -> None:
     markup = Path("ui/index.html").read_text(encoding="utf-8")
     client = Path("ui/product_app.js").read_text(encoding="utf-8")
+    authority_start = client.index("const renderRuntimeCertificateLines")
+    authority_end = client.index("const renderClearingSnapshot")
+    client_without_authority_renderer = client[:authority_start] + client[authority_end:]
     inbox_block = client.split("const loadMerchantInbox = async", 1)[1].split(
         "const renderMerchantActionFailure =", 1
     )[0]
@@ -877,8 +880,8 @@ def test_merchant_workspace_client_restores_from_get_and_mutates_only_on_explici
     assert "safeProposal.provider_invoked === true" in client
     assert "provider.hidden = !providerInvoked" in client
     assert "winner_merchant_ids" not in client
-    assert "allocated_quantity" not in client
-    assert "certificate_id" not in client
+    assert "allocated_quantity" not in client_without_authority_renderer
+    assert "certificate_id" not in client_without_authority_renderer
     assert "payment_status" not in client
     assert "unit_cost_basis_paise" not in client
     assert "minimum_margin_paise" not in client

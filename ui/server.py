@@ -40,6 +40,11 @@ _LIVE_EVIDENCE_LOCK = Lock()
 _LIVE_AI_EVIDENCE_LOCK = Lock()
 _PRODUCT_MARKET_PATH = re.compile(r"/api/product-v1/markets/([^/]+)")
 _PRODUCT_CLEARING_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/clearing")
+_PRODUCT_AUTHORITY_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/authority")
+_PRODUCT_AUTHORITY_AUTHORIZE_PATH = re.compile(
+    r"/api/product-v1/markets/([^/]+)/authority/authorize"
+)
+_PRODUCT_AUTHORITY_TAMPER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/authority/tamper")
 _PRODUCT_OFFER_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/offers")
 _PRODUCT_CLOSE_PATH = re.compile(r"/api/product-v1/markets/([^/]+)/close")
 _PRODUCT_DRAFT_INTERPRET_PATH = re.compile(r"/api/product-v1/buyer-drafts/([^/]+)/interpret")
@@ -67,6 +72,8 @@ _PRODUCT_ERROR_STATUSES = {
     ProductErrorCode.DRAFT_NOT_FREEZABLE: HTTPStatus.CONFLICT,
     ProductErrorCode.PROPOSAL_NOT_AVAILABLE: HTTPStatus.CONFLICT,
     ProductErrorCode.PROPOSAL_NOT_SUBMITTABLE: HTTPStatus.CONFLICT,
+    ProductErrorCode.MARKET_NOT_CLOSED: HTTPStatus.CONFLICT,
+    ProductErrorCode.ALLOCATION_NOT_EXECUTABLE: HTTPStatus.CONFLICT,
 }
 
 
@@ -308,6 +315,20 @@ class _Handler(BaseHTTPRequestHandler):
                     parse_product_json(body, CloseMarketRequest)
                 self._send_json(service.close_market(close_match.group(1)))
                 return
+            authority_authorize_match = _PRODUCT_AUTHORITY_AUTHORIZE_PATH.fullmatch(requested)
+            if authority_authorize_match is not None:
+                parse_product_json(body, CloseMarketRequest)
+                self._send_json(
+                    service.authorize_market_execution(authority_authorize_match.group(1))
+                )
+                return
+            authority_tamper_match = _PRODUCT_AUTHORITY_TAMPER_PATH.fullmatch(requested)
+            if authority_tamper_match is not None:
+                parse_product_json(body, CloseMarketRequest)
+                self._send_json(
+                    service.test_market_authority_tamper(authority_tamper_match.group(1))
+                )
+                return
         except ProductRequestError:
             self._send_product_error(ProductServiceError(ProductErrorCode.INVALID_REQUEST))
             return
@@ -388,6 +409,26 @@ class _Handler(BaseHTTPRequestHandler):
             if clearing_match is not None:
                 try:
                     payload = ProductService().get_clearing_snapshot(clearing_match.group(1))
+                except ProductServiceError as error:
+                    self._send_product_error(error)
+                    return
+                except Exception:
+                    self._send_json(
+                        {
+                            "error": {
+                                "code": "PRODUCT_INTERNAL_FAILURE",
+                                "message": "Product request failed closed.",
+                            }
+                        },
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    return
+                self._send_json(payload)
+                return
+            authority_match = _PRODUCT_AUTHORITY_PATH.fullmatch(requested)
+            if authority_match is not None:
+                try:
+                    payload = ProductService().get_market_authority(authority_match.group(1))
                 except ProductServiceError as error:
                     self._send_product_error(error)
                     return

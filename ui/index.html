@@ -312,6 +312,77 @@
                   <p class="micro-label">SERVER-RESOLVED WINNER IDENTITIES</p>
                   <div id="clearing-winner-list" class="clearing-winner-list"></div>
                 </div>
+
+                <div class="runtime-authority-sequence" id="runtime-authority-sequence" hidden>
+                  <section class="runtime-authority-card proof-authority-card" aria-labelledby="runtime-proof-title">
+                    <div class="runtime-authority-heading">
+                      <span class="buyer-step">05 /</span>
+                      <div><p class="micro-label">PROOF CARRIER</p><h2 id="runtime-proof-title">AllocationCertificateV2</h2></div>
+                      <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
+                    </div>
+                    <dl class="runtime-authority-facts">
+                      <div><dt>PROOF ID</dt><dd data-authority-field="proof-id">—</dd></div>
+                      <div><dt>DIGEST</dt><dd data-authority-field="proof-digest">—</dd></div>
+                      <div><dt>BUYER POLICY COMMITMENT</dt><dd data-authority-field="policy-commitment">—</dd></div>
+                      <div><dt>OFFER EVIDENCE</dt><dd data-authority-field="evidence-count">—</dd></div>
+                    </dl>
+                    <p class="micro-label runtime-lines-label">CERTIFIED ALLOCATION LINES</p>
+                    <div class="runtime-authority-lines" id="runtime-proof-lines"></div>
+                  </section>
+
+                  <section class="runtime-authority-card replay-authority-card" aria-labelledby="runtime-replay-title">
+                    <div class="runtime-authority-heading">
+                      <span class="buyer-step">06 /</span>
+                      <div><p class="micro-label">INDEPENDENT REPLAY</p><h2 id="runtime-replay-title">Verified by independent replay</h2></div>
+                      <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
+                    </div>
+                    <strong class="runtime-replay-state" data-authority-field="replay-state">—</strong>
+                    <p class="runtime-boundary-copy">Verification demonstrates internal consistency under configured trust roots. It does not prove physical inventory truth, shipment, settlement, or transcript completeness.</p>
+                  </section>
+
+                  <section class="runtime-authority-card tamper-authority-card" aria-labelledby="runtime-tamper-title">
+                    <div class="runtime-authority-heading">
+                      <span class="buyer-step">07 /</span>
+                      <div><p class="micro-label">CONTROL PATH</p><h2 id="runtime-tamper-title">Altered claim.<br />Broken chain.</h2></div>
+                      <span class="runtime-fixture-badge">DETERMINISTIC FIXTURE</span>
+                    </div>
+                    <button class="button button-secondary" id="test-runtime-tamper" type="button"><span>Test a tampered copy</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                    <div class="runtime-tamper-result" id="runtime-tamper-result" role="status" aria-live="polite" hidden>
+                      <p><span>INDEPENDENT VERIFIER</span><br /><strong data-tamper-field="verifier-failure-code">—</strong></p>
+                      <p><span>MONEY GOVERNOR</span><br /><strong data-tamper-field="governor-failure-code">—</strong></p>
+                      <p data-tamper-field="control-copy">—</p>
+                      <p data-tamper-field="money-copy">—</p>
+                    </div>
+                  </section>
+
+                  <section class="runtime-authority-card execution-authority-card" aria-labelledby="runtime-execution-title">
+                    <div class="runtime-authority-heading">
+                      <span class="buyer-step">08 /</span>
+                      <div><p class="micro-label">MONEY AUTHORITY</p><h2 id="runtime-execution-title">Money Governor</h2></div>
+                      <span class="runtime-truth-badge">REAL LOCAL PRODUCTION LOGIC</span>
+                    </div>
+                    <p class="runtime-invariant">NO VALID CERTIFICATE = NO MONEY ACTION</p>
+                    <strong class="runtime-execution-state" data-authority-field="execution-state">NO EXECUTION PLAN YET</strong>
+                    <button class="button button-primary" id="authorize-runtime-execution" type="button"><span>Authorize provider-neutral execution</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                    <p class="action-note" id="runtime-authority-status" role="status" aria-live="polite">No execution authorization has been requested.</p>
+                    <div class="runtime-execution-plan" id="runtime-execution-plan" hidden>
+                      <div class="runtime-execution-head">
+                        <div><p class="micro-label">EXECUTION PLAN</p><h3>Governor authorized</h3></div>
+                        <strong>NO RAZORPAY ACTION YET.</strong>
+                      </div>
+                      <dl class="runtime-authority-facts">
+                        <div><dt>PLAN VERSION</dt><dd data-execution-field="plan-version">—</dd></div>
+                        <div><dt>EXECUTION ID</dt><dd data-execution-field="execution-id">—</dd></div>
+                        <div><dt>PROOF DIGEST</dt><dd data-execution-field="proof-digest">—</dd></div>
+                        <div><dt>REQUEST FINGERPRINT</dt><dd data-execution-field="request-fingerprint">—</dd></div>
+                        <div><dt>IDEMPOTENCY KEY</dt><dd data-execution-field="idempotency-key">—</dd></div>
+                        <div><dt>ORDER AMOUNT</dt><dd><span data-execution-field="order-amount">—</span> PAISE</dd></div>
+                      </dl>
+                      <p class="micro-label runtime-lines-label">PROVIDER-NEUTRAL TRANSFER OBLIGATIONS</p>
+                      <div class="runtime-authority-lines" id="runtime-transfer-lines"></div>
+                    </div>
+                  </section>
+                </div>
               </div>
             </section>
           </section>
@@ -324,6 +395,10 @@
             <li><span>02</span><div><strong>Submitted offers</strong><small>SIGNED · AUTHENTICATED</small></div></li>
             <li><span>03</span><div><strong>Explicit close</strong><small>EMPTY OBJECT BODY</small></div></li>
             <li><span>04</span><div><strong>Deterministic allocation</strong><small>PRODUCTION LOGIC</small></div></li>
+            <li><span>05</span><div><strong>Allocation proof</strong><small>PROOF CARRIER</small></div></li>
+            <li><span>06</span><div><strong>Independent replay</strong><small>CONFIGURED TRUST ROOTS</small></div></li>
+            <li><span>07</span><div><strong>Controlled alteration</strong><small>DETERMINISTIC FIXTURE</small></div></li>
+            <li><span>08</span><div><strong>Execution authority</strong><small>PROVIDER-NEUTRAL PLAN</small></div></li>
           </ol>
           <p>AI can propose inputs. It cannot close a market or select its winners.</p>
         </aside>

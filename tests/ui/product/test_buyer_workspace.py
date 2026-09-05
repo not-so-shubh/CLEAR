@@ -844,6 +844,9 @@ def test_malformed_persisted_canonical_policy_fails_closed(tmp_path: Path) -> No
 
 def test_buyer_client_has_no_runtime_markup_or_hard_coded_commercial_authority() -> None:
     source = Path("ui/product_app.js").read_text(encoding="utf-8")
+    authority_start = source.index("const renderRuntimeCertificateLines")
+    authority_end = source.index("const renderClearingSnapshot")
+    source_without_authority_renderer = source[:authority_start] + source[authority_end:]
 
     assert "innerHTML" not in source
     assert (
@@ -861,9 +864,9 @@ def test_buyer_client_has_no_runtime_markup_or_hard_coded_commercial_authority()
     assert "merchant.display_name" in source
     assert "merchant.inventory_quantity" in source
     assert "winner_merchant_ids" not in source
-    assert "allocated_quantity" not in source
-    assert "certificate_digest" not in source
-    assert "VERIFIED" not in source
+    assert "allocated_quantity" not in source_without_authority_renderer
+    assert "certificate_digest" not in source_without_authority_renderer
+    assert "VERIFIED" not in source_without_authority_renderer
     assert "RUNNING · USER INITIATED" in source
     assert 'data-buyer-field="diagnostic-code"' in Path("ui/index.html").read_text(encoding="utf-8")
     assert "payload.diagnostic_code" in source

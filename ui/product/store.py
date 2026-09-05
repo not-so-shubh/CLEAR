@@ -105,6 +105,19 @@ class ResultRecord:
     total_payment_paise: int
 
 
+@dataclass(frozen=True)
+class ExecutionAuthorityRecord:
+    market_id: str
+    execution_id: str
+    decision_time: str
+    canonical_request: bytes
+    execution_request_fingerprint_sha256: str
+    state: str
+    canonical_plan: bytes | None
+    created_at: str
+    authorized_at: str | None
+
+
 def configured_product_db_path() -> Path:
     configured = os.environ.get("CLEAR_PRODUCT_DB_PATH")
     if configured:
@@ -229,6 +242,24 @@ class ProductStore:
                             AND submitted_offer_id IS NULL AND provider_invoked = 1)
                         OR (state = 'SUBMITTED' AND canonical_candidate IS NOT NULL
                             AND submitted_offer_id IS NOT NULL AND provider_invoked = 1)
+                    )
+                );
+
+                CREATE TABLE IF NOT EXISTS product_execution_authorities (
+                    market_id TEXT PRIMARY KEY REFERENCES product_markets(market_id),
+                    execution_id TEXT NOT NULL UNIQUE,
+                    decision_time TEXT NOT NULL,
+                    canonical_request BLOB NOT NULL,
+                    execution_request_fingerprint_sha256 TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK (state IN ('AUTHORIZING', 'AUTHORIZED')),
+                    canonical_plan BLOB,
+                    created_at TEXT NOT NULL,
+                    authorized_at TEXT,
+                    CHECK (
+                        (state = 'AUTHORIZING' AND canonical_plan IS NULL
+                            AND authorized_at IS NULL)
+                        OR (state = 'AUTHORIZED' AND canonical_plan IS NOT NULL
+                            AND authorized_at IS NOT NULL)
                     )
                 );
                 """
@@ -736,3 +767,76 @@ class ProductStore:
             values.pop("winner_merchant_ids_json")
         )
         return ResultRecord(**values)
+
+    @staticmethod
+    def insert_execution_authority(
+        connection: sqlite3.Connection,
+        record: ExecutionAuthorityRecord,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO product_execution_authorities (
+                market_id,
+                execution_id,
+                decision_time,
+                canonical_request,
+                execution_request_fingerprint_sha256,
+                state,
+                canonical_plan,
+                created_at,
+                authorized_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.market_id,
+                record.execution_id,
+                record.decision_time,
+                record.canonical_request,
+                record.execution_request_fingerprint_sha256,
+                record.state,
+                record.canonical_plan,
+                record.created_at,
+                record.authorized_at,
+            ),
+        )
+
+    @staticmethod
+    def get_execution_authority(
+        connection: sqlite3.Connection,
+        market_id: str,
+    ) -> ExecutionAuthorityRecord | None:
+        row = connection.execute(
+            "SELECT * FROM product_execution_authorities WHERE market_id = ?",
+            (market_id,),
+        ).fetchone()
+        return None if row is None else ExecutionAuthorityRecord(**dict(row))
+
+    @classmethod
+    def mark_execution_authorized(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        market_id: str,
+        execution_id: str,
+        canonical_plan: bytes,
+        authorized_at: str,
+    ) -> None:
+        existing = cls.get_execution_authority(connection, market_id)
+        if existing is None or existing.execution_id != execution_id:
+            raise RuntimeError("execution authority identity changed")
+        if existing.state == "AUTHORIZED":
+            if existing.canonical_plan != canonical_plan or existing.authorized_at != authorized_at:
+                raise RuntimeError("authorized execution authority changed")
+            return
+        if existing.state != "AUTHORIZING":
+            raise RuntimeError("execution authority state is invalid")
+        cursor = connection.execute(
+            """
+            UPDATE product_execution_authorities
+            SET state = 'AUTHORIZED', canonical_plan = ?, authorized_at = ?
+            WHERE market_id = ? AND execution_id = ? AND state = 'AUTHORIZING'
+            """,
+            (canonical_plan, authorized_at, market_id, execution_id),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("execution authority transition failed")

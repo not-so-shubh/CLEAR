@@ -643,7 +643,16 @@ def test_clearing_client_is_get_restored_and_close_body_has_no_authority() -> No
     assert "/api/product-v1/markets/${encodeURIComponent(marketId)}/close" in close_block
     assert 'method: "POST"' in close_block
     assert 'body: "{}"' in close_block
-    for forbidden in ("offers", "prices", "quantities", "winner", "allocation instructions"):
+    for forbidden in (
+        "offers",
+        "prices",
+        "quantities",
+        "winner",
+        "allocation instructions",
+        "certificate",
+        "governor",
+        "razorpay",
+    ):
         assert forbidden not in close_block.lower()
     assert client.count("/close`") == 1
     assert "/api/product-v1/markets/${encodeURIComponent(marketId)}/clearing" in reconcile_block
@@ -666,8 +675,10 @@ def test_clearing_client_is_get_restored_and_close_body_has_no_authority() -> No
         )
         is None
     )
-    for forbidden in ("certificate", "governor", "razorpay"):
-        assert forbidden not in clearing_markup.lower()
+    assert "AllocationCertificateV2" in clearing_markup
+    assert "Money Governor" in clearing_markup
+    assert "NO VALID CERTIFICATE = NO MONEY ACTION" in clearing_markup
+    assert "NO RAZORPAY ACTION YET." in clearing_markup
 
 
 def test_clearing_snapshot_404_releases_running_state() -> None:

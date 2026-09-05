@@ -463,3 +463,87 @@ def test_clearing_http_maps_malformed_persisted_winner_ids_to_product_error(
             "message": "Product request failed closed.",
         }
     }
+
+
+def test_authority_http_routes_are_strict_and_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLEAR_PRODUCT_DB_PATH", str(tmp_path / "product.sqlite3"))
+    merchants = [_post("/api/product-v1/merchants", _merchant(name))[1] for name in ("One", "Two")]
+    _, market = _post(
+        "/api/product-v1/markets",
+        {
+            "requested_quantity": 2,
+            "minimum_acceptable_quantity": 2,
+            "max_winners": 2,
+            "max_total_payment_paise": 10_000,
+            "eligible_merchant_ids": [merchant["merchant_id"] for merchant in merchants],
+            "offer_deadline": canonical_utc_datetime(datetime.now(UTC) + timedelta(hours=1)),
+        },
+    )
+    market_id = market["market_id"]
+    for merchant, price in zip(merchants, (500, 600), strict=True):
+        assert (
+            _post(
+                f"/api/product-v1/markets/{market_id}/offers",
+                {
+                    "merchant_id": merchant["merchant_id"],
+                    "proposed_quantity": 1,
+                    "proposed_unit_price_paise": price,
+                },
+            )[0]
+            == 201
+        )
+    assert _post(f"/api/product-v1/markets/{market_id}/close", {})[0] == 200
+
+    authority_status, authority = _request("GET", f"/api/product-v1/markets/{market_id}/authority")
+    assert authority_status == 200
+    assert authority["market"]["state"] == "CLOSED"
+    assert authority["governor"]["state"] == "NOT_AUTHORIZED"
+    assert "canonical_certificate" not in json.dumps(authority)
+
+    tamper_status, tamper = _post(f"/api/product-v1/markets/{market_id}/authority/tamper", {})
+    assert tamper_status == 200
+    assert tamper["verifier"]["failure_code"] == "POLICY_COMMITMENT_MISMATCH"
+    authorize_status, authorized = _post(
+        f"/api/product-v1/markets/{market_id}/authority/authorize", {}
+    )
+    assert authorize_status == 200
+    assert authorized["governor"]["state"] == "AUTHORIZED"
+    assert authorized["governor"]["execution_plan"]["execution_id"]
+
+    open_market_status, open_market = _post(
+        "/api/product-v1/markets",
+        {
+            "requested_quantity": 1,
+            "minimum_acceptable_quantity": 1,
+            "max_winners": 1,
+            "max_total_payment_paise": 10_000,
+            "eligible_merchant_ids": [merchant["merchant_id"] for merchant in merchants],
+            "offer_deadline": canonical_utc_datetime(datetime.now(UTC) + timedelta(hours=1)),
+        },
+    )
+    assert open_market_status == 201
+    open_authority_status, open_authority = _request(
+        "GET", f"/api/product-v1/markets/{open_market['market_id']}/authority"
+    )
+    assert open_authority_status == 409
+    assert open_authority == {
+        "error": {
+            "code": "MARKET_NOT_CLOSED",
+            "message": "Product request failed closed.",
+        }
+    }
+
+    for suffix in ("authority/authorize", "authority/tamper"):
+        for invalid_body in (b"", b"[]", b"null", b'""', b'{"unexpected":1}'):
+            status, payload = _request(
+                "POST", f"/api/product-v1/markets/{market_id}/{suffix}", invalid_body
+            )
+            assert status == 400
+            assert payload == {
+                "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Product request failed closed.",
+                }
+            }
