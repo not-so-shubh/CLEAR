@@ -60,8 +60,13 @@
   const runtimeAuthorityStatus = document.querySelector("#runtime-authority-status");
   const runtimeExecutionPlan = document.querySelector("#runtime-execution-plan");
   const runtimeRazorpayButton = document.querySelector("#create-runtime-razorpay-order");
+  const runtimeRazorpayCheckoutButton = document.querySelector(
+    "#open-runtime-razorpay-checkout",
+  );
+  const runtimePaymentRefreshButton = document.querySelector("#refresh-runtime-payment-state");
   const runtimeRazorpayStatus = document.querySelector("#runtime-razorpay-status");
   const runtimeRazorpayResult = document.querySelector("#runtime-razorpay-result");
+  const runtimePaymentProof = document.querySelector("#runtime-payment-proof");
 
   let currentMarketId = null;
   let running = false;
@@ -81,6 +86,13 @@
   let authorizeRequestGeneration = 0;
   let razorpayRequestGeneration = 0;
   let razorpayRunning = false;
+  let runtimePaymentPollGeneration = 0;
+  let runtimePaymentPollTimer = null;
+  let runtimePaymentPollDeadlineTimer = null;
+  let runtimePaymentPollDelayResolve = null;
+  let runtimePaymentPollController = null;
+  let runtimePaymentPolling = false;
+  let currentRuntimeCheckout = null;
   let currentRuntimeExecutionId = null;
   let currentRuntimeOrderAmount = null;
   let reconcileActiveWorkspace = () => {};
@@ -1328,6 +1340,310 @@
     if (target) target.textContent = String(value);
   };
 
+  const PAYMENT_POLL_INTERVAL_MS = 1500;
+  const PAYMENT_POLL_MAX_ATTEMPTS = 24;
+  const PAYMENT_POLL_WINDOW_MS = 36000;
+  const PAYMENT_STATES = new Set([
+    "ORDER_CREATED",
+    "PAYMENT_FAILED_OBSERVED",
+    "PAYMENT_AUTHORIZED",
+    "PAYMENT_CAPTURED",
+  ]);
+
+  const setRuntimePaymentControls = () => {
+    const checkoutReady = currentRuntimeCheckout !== null;
+    if (runtimeRazorpayCheckoutButton instanceof HTMLButtonElement) {
+      runtimeRazorpayCheckoutButton.disabled =
+        !checkoutReady || razorpayRunning || authorityRunning || runtimePaymentPolling;
+    }
+    if (runtimePaymentRefreshButton instanceof HTMLButtonElement) {
+      runtimePaymentRefreshButton.disabled =
+        !checkoutReady || razorpayRunning || authorityRunning || runtimePaymentPolling;
+    }
+  };
+
+  const clearRuntimePaymentProof = () => {
+    if (runtimePaymentProof) {
+      runtimePaymentProof.hidden = true;
+      runtimePaymentProof.dataset.state = "";
+    }
+    setRuntimeRazorpayText("payment-state", "—");
+    setRuntimeRazorpayText("payment-proof-copy", "—");
+    setRuntimeRazorpayText("provider-payment-id", "—");
+    setRuntimeRazorpayText("payment-provider-order-id", "—");
+    setRuntimeRazorpayText("payment-execution-id", "—");
+    setRuntimeRazorpayText("expected-amount", "—");
+    setRuntimeRazorpayText("expected-amount-raw", "—");
+    setRuntimeRazorpayText("payment-currency", "—");
+    setRuntimeRazorpayText("webhook-disposition", "—");
+  };
+
+  const cancelRuntimePaymentPolling = () => {
+    ++runtimePaymentPollGeneration;
+    if (runtimePaymentPollTimer !== null) {
+      window.clearTimeout(runtimePaymentPollTimer);
+      runtimePaymentPollTimer = null;
+    }
+    if (runtimePaymentPollDeadlineTimer !== null) {
+      window.clearTimeout(runtimePaymentPollDeadlineTimer);
+      runtimePaymentPollDeadlineTimer = null;
+    }
+    const resolveDelay = runtimePaymentPollDelayResolve;
+    runtimePaymentPollDelayResolve = null;
+    if (resolveDelay) resolveDelay({ cancelled: true });
+    if (runtimePaymentPollController !== null) {
+      runtimePaymentPollController.abort();
+      runtimePaymentPollController = null;
+    }
+    runtimePaymentPolling = false;
+    setRuntimePaymentControls();
+  };
+
+  const clearRuntimeCheckoutMetadata = () => {
+    cancelRuntimePaymentPolling();
+    currentRuntimeCheckout = null;
+    if (runtimeRazorpayCheckoutButton instanceof HTMLButtonElement) {
+      runtimeRazorpayCheckoutButton.hidden = true;
+    }
+    if (runtimePaymentRefreshButton instanceof HTMLButtonElement) {
+      runtimePaymentRefreshButton.hidden = true;
+    }
+    clearRuntimePaymentProof();
+    setRuntimePaymentControls();
+  };
+
+  const validateCheckoutMetadata = (payload, marketId, executionId, orderAmount) => {
+    const checkout = payload?.checkout;
+    if (
+      !checkout ||
+      typeof checkout !== "object" ||
+      Array.isArray(checkout) ||
+      typeof checkout.key_id !== "string" ||
+      !checkout.key_id.startsWith("rzp_test_") ||
+      checkout.key_id.length <= "rzp_test_".length ||
+      typeof checkout.provider_order_id !== "string" ||
+      checkout.provider_order_id.length === 0 ||
+      checkout.provider_order_id !== payload.provider_order_id ||
+      !Number.isSafeInteger(checkout.amount_paise) ||
+      checkout.amount_paise !== payload.order_amount_paise ||
+      checkout.amount_paise !== orderAmount ||
+      checkout.currency !== "INR" ||
+      checkout.execution_id !== executionId ||
+      checkout.execution_id !== payload.execution_id ||
+      payload.market_id !== marketId
+    ) {
+      throw new Error("The server Checkout metadata failed closed.");
+    }
+    return {
+      key_id: checkout.key_id,
+      provider_order_id: checkout.provider_order_id,
+      amount_paise: checkout.amount_paise,
+      currency: checkout.currency,
+      execution_id: checkout.execution_id,
+    };
+  };
+
+  const paymentContextIsCurrent = (marketId, executionId, checkout, requestGeneration) =>
+    requestGeneration === razorpayRequestGeneration &&
+    currentClearingMarketId === marketId &&
+    currentRuntimeExecutionId === executionId &&
+    currentRuntimeCheckout === checkout;
+
+  const validatePaymentStatePayload = (payload, marketId, executionId, checkout) => {
+    if (
+      payload?.result !== "SUCCESS" ||
+      payload.market_id !== marketId ||
+      payload.execution_id !== executionId ||
+      typeof payload.provider_order_id !== "string" ||
+      payload.provider_order_id !== checkout.provider_order_id ||
+      !Number.isSafeInteger(payload.expected_amount_paise) ||
+      payload.expected_amount_paise !== checkout.amount_paise ||
+      payload.currency !== "INR" ||
+      !PAYMENT_STATES.has(payload.payment_state) ||
+      (payload.provider_payment_id !== null &&
+        (typeof payload.provider_payment_id !== "string" ||
+          payload.provider_payment_id.length === 0)) ||
+      ((payload.payment_state === "PAYMENT_AUTHORIZED" ||
+        payload.payment_state === "PAYMENT_CAPTURED") &&
+        payload.provider_payment_id === null)
+    ) {
+      throw new Error("The server payment-state replay failed closed.");
+    }
+    return payload;
+  };
+
+  const renderRuntimePaymentState = (payload) => {
+    const paymentState = payload.payment_state;
+    const proofCopy = {
+      ORDER_CREATED: "No authenticated payment evidence has been replayed.",
+      PAYMENT_AUTHORIZED: "Authenticated webhook · deterministic replay",
+      PAYMENT_FAILED_OBSERVED: "Authenticated webhook · deterministic replay",
+      PAYMENT_CAPTURED: "Authenticated webhook · deterministic replay",
+    }[paymentState];
+    if (runtimePaymentProof) {
+      runtimePaymentProof.hidden = false;
+      runtimePaymentProof.dataset.state = paymentState;
+    }
+    setRuntimeRazorpayText("payment-state", paymentState);
+    setRuntimeRazorpayText("payment-proof-copy", proofCopy);
+    setRuntimeRazorpayText("provider-payment-id", payload.provider_payment_id || "—");
+    setRuntimeRazorpayText("payment-provider-order-id", payload.provider_order_id);
+    setRuntimeRazorpayText("payment-execution-id", payload.execution_id);
+    setRuntimeRazorpayText("expected-amount", formatInrFromPaise(payload.expected_amount_paise));
+    setRuntimeRazorpayText(
+      "expected-amount-raw",
+      `${payload.expected_amount_paise} paise · INR`,
+    );
+    setRuntimeRazorpayText("payment-currency", payload.currency);
+    setRuntimeRazorpayText("webhook-disposition", payload.webhook_disposition || "—");
+  };
+
+  const refreshRuntimePaymentState = async (
+    marketId,
+    executionId,
+    checkout,
+    requestGeneration,
+    pollGeneration = null,
+    signal = null,
+  ) => {
+    const requestOptions = { headers: {} };
+    if (signal !== null) requestOptions.signal = signal;
+    const response = await requestJSON(
+      `/api/product-v1/markets/${encodeURIComponent(marketId)}/authority/razorpay-payment-state`,
+      requestOptions,
+    );
+    if (
+      !paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration) ||
+      (pollGeneration !== null && pollGeneration !== runtimePaymentPollGeneration)
+    ) {
+      return { stale: true };
+    }
+    if (!response.ok || response.payload?.result !== "SUCCESS") {
+      const code = response.payload?.code || response.payload?.error?.code || "PAYMENT_STATE_FAILED";
+      clearRuntimePaymentProof();
+      if (runtimeRazorpayStatus) {
+        runtimeRazorpayStatus.textContent = `Payment state not confirmed · ${String(code)}`;
+      }
+      return { stale: false, success: false };
+    }
+    let payload;
+    try {
+      payload = validatePaymentStatePayload(
+        response.payload,
+        marketId,
+        executionId,
+        checkout,
+      );
+    } catch (_error) {
+      clearRuntimePaymentProof();
+      if (runtimeRazorpayStatus) {
+        runtimeRazorpayStatus.textContent = "Payment state replay failed closed.";
+      }
+      return { stale: false, success: false };
+    }
+    renderRuntimePaymentState(payload);
+    if (runtimeRazorpayStatus) {
+      runtimeRazorpayStatus.textContent =
+        payload.payment_state === "PAYMENT_CAPTURED"
+          ? "PAYMENT_CAPTURED confirmed by authenticated webhook and deterministic replay."
+          : `Server replay state: ${payload.payment_state}.`;
+    }
+    return { stale: false, success: true, paymentState: payload.payment_state };
+  };
+
+  const startRuntimePaymentPolling = (marketId, executionId, checkout, requestGeneration) => {
+    cancelRuntimePaymentPolling();
+    const pollGeneration = runtimePaymentPollGeneration;
+    const pollController = new AbortController();
+    let deadlineReached = false;
+    runtimePaymentPollController = pollController;
+    runtimePaymentPolling = true;
+    setRuntimePaymentControls();
+    if (runtimeRazorpayStatus) {
+      runtimeRazorpayStatus.textContent =
+        "Checkout reported completion. Waiting for authenticated webhook and deterministic replay.";
+    }
+    runtimePaymentPollDeadlineTimer = window.setTimeout(() => {
+      if (pollGeneration !== runtimePaymentPollGeneration) return;
+      deadlineReached = true;
+      pollController.abort();
+      const resolveDelay = runtimePaymentPollDelayResolve;
+      runtimePaymentPollDelayResolve = null;
+      if (resolveDelay) resolveDelay({ cancelled: true });
+      if (paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration)) {
+        if (runtimeRazorpayStatus) {
+          runtimeRazorpayStatus.textContent =
+            "Payment state polling window ended. Refresh payment state manually.";
+        }
+      }
+    }, PAYMENT_POLL_WINDOW_MS);
+    const poll = async () => {
+      try {
+        for (let attempt = 0; attempt < PAYMENT_POLL_MAX_ATTEMPTS; attempt += 1) {
+          if (
+            !paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration) ||
+            pollGeneration !== runtimePaymentPollGeneration
+          ) {
+            return;
+          }
+          const outcome = await refreshRuntimePaymentState(
+            marketId,
+            executionId,
+            checkout,
+            requestGeneration,
+            pollGeneration,
+            pollController.signal,
+          );
+          if (outcome.stale || !outcome.success) return;
+          if (outcome.paymentState === "PAYMENT_CAPTURED") return;
+          if (attempt + 1 >= PAYMENT_POLL_MAX_ATTEMPTS) {
+            if (runtimeRazorpayStatus) {
+              runtimeRazorpayStatus.textContent =
+                "Payment state polling window ended. Refresh payment state manually.";
+            }
+            return;
+          }
+          const delayOutcome = await new Promise((resolve) => {
+            runtimePaymentPollDelayResolve = resolve;
+            runtimePaymentPollTimer = window.setTimeout(() => {
+              runtimePaymentPollTimer = null;
+              runtimePaymentPollDelayResolve = null;
+              resolve();
+            }, PAYMENT_POLL_INTERVAL_MS);
+          });
+          if (delayOutcome?.cancelled) return;
+        }
+      } catch (_error) {
+        if (
+          !paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration) ||
+          pollGeneration !== runtimePaymentPollGeneration
+        ) {
+          return;
+        }
+        clearRuntimePaymentProof();
+        if (runtimeRazorpayStatus) {
+          runtimeRazorpayStatus.textContent =
+            deadlineReached
+              ? "Payment state polling window ended. Refresh payment state manually."
+              : "Payment state replay failed closed.";
+        }
+      } finally {
+        if (pollGeneration === runtimePaymentPollGeneration) {
+          if (runtimePaymentPollDeadlineTimer !== null) {
+            window.clearTimeout(runtimePaymentPollDeadlineTimer);
+            runtimePaymentPollDeadlineTimer = null;
+          }
+          if (runtimePaymentPollController === pollController) {
+            runtimePaymentPollController = null;
+          }
+          runtimePaymentPolling = false;
+          setRuntimePaymentControls();
+        }
+      }
+    };
+    void poll();
+  };
+
   const resetRuntimeTamper = () => {
     ++tamperRequestGeneration;
     if (runtimeTamperResult) runtimeTamperResult.hidden = true;
@@ -1348,6 +1664,7 @@
     if (runtimeRazorpayButton instanceof HTMLButtonElement) {
       runtimeRazorpayButton.disabled = value || razorpayRunning;
     }
+    setRuntimePaymentControls();
   };
 
   const setRazorpayRunning = (value) => {
@@ -1361,10 +1678,12 @@
     if (runtimeAuthorizeButton instanceof HTMLButtonElement) {
       runtimeAuthorizeButton.disabled = value || authorityRunning;
     }
+    setRuntimePaymentControls();
   };
 
   const resetRuntimeRazorpay = () => {
     ++razorpayRequestGeneration;
+    clearRuntimeCheckoutMetadata();
     currentRuntimeExecutionId = null;
     currentRuntimeOrderAmount = null;
     if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = true;
@@ -1585,6 +1904,12 @@
             : payload?.razorpay_order?.state)
       ) {
         throw new Error("The persisted execution plan failed closed.");
+      }
+      if (
+        currentRuntimeExecutionId !== null &&
+        currentRuntimeExecutionId !== plan.execution_id
+      ) {
+        clearRuntimeCheckoutMetadata();
       }
       currentRuntimeExecutionId = plan.execution_id;
       currentRuntimeOrderAmount = plan.order_amount_paise;
@@ -2110,6 +2435,7 @@
       const executionId = currentRuntimeExecutionId;
       const orderAmount = currentRuntimeOrderAmount;
       const requestGeneration = ++razorpayRequestGeneration;
+      clearRuntimeCheckoutMetadata();
       setRazorpayRunning(true);
       if (runtimeRazorpayStatus) {
         runtimeRazorpayStatus.textContent =
@@ -2148,6 +2474,13 @@
         ) {
           throw new Error("The current-run provider observation failed closed.");
         }
+        const checkout = validateCheckoutMetadata(
+          payload,
+          marketId,
+          executionId,
+          orderAmount,
+        );
+        currentRuntimeCheckout = checkout;
         const state = {
           CREATED: "ORDER CREATED",
           EXISTING: "EXISTING ORDER RESOLVED",
@@ -2167,11 +2500,19 @@
         setRuntimeRazorpayText("order-amount-raw", `${payload.order_amount_paise} paise · INR`);
         setRuntimeRazorpayText("receipt", payload.receipt);
         if (runtimeRazorpayResult) runtimeRazorpayResult.hidden = false;
+        if (runtimeRazorpayCheckoutButton instanceof HTMLButtonElement) {
+          runtimeRazorpayCheckoutButton.hidden = false;
+        }
+        if (runtimePaymentRefreshButton instanceof HTMLButtonElement) {
+          runtimePaymentRefreshButton.hidden = false;
+        }
+        clearRuntimePaymentProof();
+        setRuntimePaymentControls();
         const label = runtimeRazorpayButton.querySelector("span");
         if (label) label.textContent = "Resolve existing Razorpay order";
         if (runtimeRazorpayStatus) {
           runtimeRazorpayStatus.textContent =
-            "Provider order facts were validated against the persisted ExecutionPlanV1.";
+            "Provider order facts were validated against the persisted ExecutionPlanV1. Checkout is a separate Test Mode action; payment state remains server-authoritative.";
         }
       } catch (error) {
         if (
@@ -2193,6 +2534,117 @@
           currentClearingMarketId === marketId &&
           currentRuntimeExecutionId === executionId
         ) {
+          setRazorpayRunning(false);
+        }
+      }
+    });
+  }
+
+  if (runtimeRazorpayCheckoutButton instanceof HTMLButtonElement) {
+    runtimeRazorpayCheckoutButton.addEventListener("click", () => {
+      if (
+        authorityRunning ||
+        razorpayRunning ||
+        runtimePaymentPolling ||
+        currentClearingState !== "CLOSED" ||
+        !currentClearingMarketId ||
+        !currentRuntimeExecutionId ||
+        !currentRuntimeCheckout
+      ) {
+        return;
+      }
+      const marketId = currentClearingMarketId;
+      const executionId = currentRuntimeExecutionId;
+      const checkout = currentRuntimeCheckout;
+      const requestGeneration = razorpayRequestGeneration;
+      if (typeof window.Razorpay !== "function") {
+        if (runtimeRazorpayStatus) {
+          runtimeRazorpayStatus.textContent =
+            "Razorpay Test Checkout is unavailable. No captured payment has been confirmed.";
+        }
+        runtimeRazorpayCheckoutButton.disabled = true;
+        return;
+      }
+      setRazorpayRunning(true);
+      try {
+        const razorpayCheckout = new window.Razorpay({
+          key: checkout.key_id,
+          amount: checkout.amount_paise,
+          currency: checkout.currency,
+          order_id: checkout.provider_order_id,
+          name: "CLEAR",
+          description: "Governor-authorized Test Mode payment",
+          handler: () => {
+            if (!paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration)) {
+              return;
+            }
+            setRazorpayRunning(false);
+            startRuntimePaymentPolling(marketId, executionId, checkout, requestGeneration);
+          },
+          modal: {
+            ondismiss: () => {
+              if (!paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration)) {
+                return;
+              }
+              setRazorpayRunning(false);
+              if (runtimeRazorpayStatus) {
+                runtimeRazorpayStatus.textContent =
+                  "Checkout was dismissed. No captured payment has been confirmed.";
+              }
+            },
+          },
+        });
+        razorpayCheckout.open();
+      } catch (error) {
+        if (paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration)) {
+          setRazorpayRunning(false);
+          if (runtimeRazorpayStatus) {
+            runtimeRazorpayStatus.textContent =
+              error instanceof Error
+                ? error.message
+                : "Razorpay Test Checkout failed closed. No captured payment has been confirmed.";
+          }
+        }
+      }
+    });
+  }
+
+  if (runtimePaymentRefreshButton instanceof HTMLButtonElement) {
+    runtimePaymentRefreshButton.addEventListener("click", async () => {
+      if (
+        authorityRunning ||
+        razorpayRunning ||
+        runtimePaymentPolling ||
+        currentClearingState !== "CLOSED" ||
+        !currentClearingMarketId ||
+        !currentRuntimeExecutionId ||
+        !currentRuntimeCheckout
+      ) {
+        return;
+      }
+      const marketId = currentClearingMarketId;
+      const executionId = currentRuntimeExecutionId;
+      const checkout = currentRuntimeCheckout;
+      const requestGeneration = razorpayRequestGeneration;
+      setRazorpayRunning(true);
+      if (runtimeRazorpayStatus) {
+        runtimeRazorpayStatus.textContent = "Refreshing authenticated payment-state replay.";
+      }
+      try {
+        await refreshRuntimePaymentState(
+          marketId,
+          executionId,
+          checkout,
+          requestGeneration,
+        );
+      } catch (_error) {
+        if (paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration)) {
+          clearRuntimePaymentProof();
+          runtimeRazorpayStatus.textContent =
+            "Payment state replay failed closed.";
+        }
+      } finally {
+        if (paymentContextIsCurrent(marketId, executionId, checkout, requestGeneration)) {
           setRazorpayRunning(false);
         }
       }

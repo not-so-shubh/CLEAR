@@ -612,7 +612,7 @@ def test_browser_razorpay_action_is_explicit_empty_body_and_stale_guarded() -> N
     script = (root / "ui" / "product_app.js").read_text(encoding="utf-8")
     markup = (root / "ui" / "index.html").read_text(encoding="utf-8")
     action = script.split('runtimeRazorpayButton.addEventListener("click"', 1)[1].split(
-        "const renderInterpretationFailure =", 1
+        "if (runtimeRazorpayCheckoutButton instanceof HTMLButtonElement)", 1
     )[0]
 
     assert "/authority/razorpay-order`" in action

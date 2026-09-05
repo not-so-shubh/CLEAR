@@ -8,6 +8,7 @@
     <title>CLEAR — Agents propose. Rules decide.</title>
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/product.css" />
+    <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
   </head>
   <body data-state="IDLE" data-view="buyer">
     <a class="skip-link" href="#buyer-workspace">Skip to workspace</a>
@@ -500,8 +501,12 @@
                             <div><p class="micro-label">EXPLICIT PROVIDER ACTION</p><h3 id="runtime-razorpay-title">Razorpay Test Mode order</h3></div>
                             <strong data-razorpay-field="state">NOT DEMONSTRATED</strong>
                           </div>
-                          <p class="runtime-boundary-copy">Razorpay Test Mode order creation and existing-order resolution only. This does not demonstrate payment capture, customer payment, webhook handling, transfer, settlement, or real-money movement.</p>
+                          <p class="runtime-boundary-copy">Razorpay Test Mode checkout and authenticated payment-state replay are available. PAYMENT_CAPTURED appears only after CLEAR receives an authenticated webhook and deterministic replay confirms the state. This does not claim payment capture, settlement, transfer, or real-money movement.</p>
                           <button class="button button-secondary" id="create-runtime-razorpay-order" type="button"><span>Create Razorpay Test Mode order</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                          <div class="runtime-razorpay-controls">
+                            <button class="button button-secondary button-razorpay-checkout" id="open-runtime-razorpay-checkout" type="button" hidden disabled><span class="razorpay-button-label"><img class="razorpay-logo" src="/assets/razorpay-mark.svg" alt="" aria-hidden="true" /><span>Open Razorpay Test Checkout</span></span><span class="button-arrow" aria-hidden="true">↗</span></button>
+                            <button class="text-link" id="refresh-runtime-payment-state" type="button" hidden disabled>Refresh payment state</button>
+                          </div>
                           <p class="action-note" id="runtime-razorpay-status" role="status" aria-live="polite">No Razorpay order action has been requested.</p>
                           <div class="runtime-razorpay-result" id="runtime-razorpay-result" hidden>
                             <p class="micro-label" data-razorpay-field="observation">—</p>
@@ -513,6 +518,21 @@
                               <div><dt>RECEIPT</dt><dd data-razorpay-field="receipt">—</dd></div>
                             </dl>
                           </div>
+                          <section class="runtime-payment-proof" id="runtime-payment-proof" aria-labelledby="runtime-payment-proof-title" hidden>
+                            <div class="runtime-execution-head">
+                              <div><p class="micro-label">PAYMENT PROOF</p><h4 id="runtime-payment-proof-title">Authenticated server replay</h4></div>
+                              <strong data-razorpay-field="payment-state">—</strong>
+                            </div>
+                            <p class="runtime-payment-proof-copy" data-razorpay-field="payment-proof-copy">—</p>
+                            <dl class="runtime-authority-facts">
+                              <div><dt>PROVIDER PAYMENT ID</dt><dd data-razorpay-field="provider-payment-id">—</dd></div>
+                              <div><dt>PROVIDER ORDER ID</dt><dd data-razorpay-field="payment-provider-order-id">—</dd></div>
+                              <div><dt>EXECUTION ID</dt><dd data-razorpay-field="payment-execution-id">—</dd></div>
+                              <div><dt>EXPECTED AMOUNT</dt><dd><span data-razorpay-field="expected-amount">—</span><small data-razorpay-field="expected-amount-raw">—</small></dd></div>
+                              <div><dt>CURRENCY</dt><dd data-razorpay-field="payment-currency">—</dd></div>
+                              <div><dt>WEBHOOK DISPOSITION</dt><dd data-razorpay-field="webhook-disposition">—</dd></div>
+                            </dl>
+                          </section>
                         </section>
                       </div>
                     </div>
@@ -536,10 +556,11 @@
             <li><span aria-hidden="true">✓</span> Money Governor authorization</li>
             <li><span aria-hidden="true">✓</span> Provider-neutral ExecutionPlanV1</li>
             <li><span aria-hidden="true">✓</span> Razorpay Test Mode boundary</li>
+            <li><span aria-hidden="true">→</span> Authenticated Test Mode payment-state replay</li>
           </ul>
           <div class="clearing-limitations-summary">
             <span class="evidence-taxonomy evidence-limit">NOT DEMONSTRATED</span>
-            <p>Payment capture · settlement · physical fulfillment · real-money movement · refunds/reversals</p>
+            <p>Payment capture · settlement · physical fulfillment · real-money movement · refunds/reversals · supplier payout/transfers</p>
           </div>
         </div>
       </section>

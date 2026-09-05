@@ -1751,10 +1751,96 @@ body[data-view="clearing"] .site-header {
   border-top: 1px solid #3c4234;
 }
 
-.runtime-razorpay-action .button {
-  width: fit-content;
+.runtime-razorpay-action > .button,
+.runtime-razorpay-controls {
+  width: min(100%, 360px);
   max-width: 100%;
+}
+
+.runtime-razorpay-action > .button {
   margin-top: 18px;
+}
+
+.runtime-razorpay-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) max-content;
+  column-gap: 22px;
+  align-items: center;
+  width: fit-content;
+  margin-top: 12px;
+}
+
+.runtime-razorpay-controls .button {
+  min-width: 0;
+  width: 100%;
+  margin-top: 0;
+}
+
+.button-razorpay-checkout {
+  border-color: #39769d;
+  background: #17394d;
+  color: #f4fbff;
+}
+
+.button-razorpay-checkout:hover:not(:disabled) {
+  border-color: #78c5ed;
+  background: #205875;
+  color: #ffffff;
+}
+
+.button-razorpay-checkout .button-arrow {
+  border-left-color: rgb(174 222 247 / 28%);
+}
+
+.razorpay-button-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.razorpay-logo {
+  display: block;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.runtime-razorpay-controls .text-link {
+  justify-self: start;
+}
+
+#refresh-runtime-payment-state {
+  width: fit-content;
+  min-height: 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  padding: 5px 0;
+  appearance: none;
+  background: transparent;
+  box-shadow: none;
+  color: #cbd1bd;
+  opacity: 1;
+}
+
+#refresh-runtime-payment-state:hover:not(:disabled) {
+  background: transparent;
+  color: #f3f5e9;
+}
+
+#refresh-runtime-payment-state:focus-visible {
+  outline: 2px solid #78c5ed;
+  outline-offset: 3px;
+  background: transparent;
+}
+
+#refresh-runtime-payment-state:disabled {
+  background: transparent;
+  box-shadow: none;
+  color: #9ca28f;
+  opacity: 0.78;
 }
 
 .runtime-razorpay-result {
@@ -1770,6 +1856,32 @@ body[data-view="clearing"] .site-header {
   margin-top: 4px;
   color: #9ca28f;
   font: 10px/1.5 var(--mono);
+}
+
+.runtime-payment-proof {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid #3c4234;
+}
+
+.runtime-payment-proof[hidden] {
+  display: none;
+}
+
+.runtime-payment-proof[data-state="PAYMENT_CAPTURED"] {
+  padding: 18px;
+  border: 1px solid #78a875;
+  background: #263526;
+}
+
+.runtime-payment-proof[data-state="PAYMENT_CAPTURED"] [data-razorpay-field="payment-state"] {
+  color: #c7edbe;
+}
+
+.runtime-payment-proof-copy {
+  margin: 8px 0 18px;
+  color: #cbd1bd;
+  font: 11px/1.6 var(--mono);
 }
 
 @media (max-width: 800px) {
@@ -1814,8 +1926,14 @@ body[data-view="clearing"] .site-header {
     width: 100%;
   }
 
-  .runtime-razorpay-action .button {
+  .runtime-razorpay-action > .button,
+  .runtime-razorpay-controls {
     width: 100%;
+  }
+
+  .runtime-razorpay-controls {
+    grid-template-columns: 1fr;
+    row-gap: 10px;
   }
 }
 
